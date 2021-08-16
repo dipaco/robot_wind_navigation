@@ -29,4 +29,4 @@ seed: 1
 hydra:
     name: ${env}
     run:
-        dir: /mnt/beegfs/scratch/diegopc/logs/robots/${now:%Y.%m.%d}/${now:%H%M}_${agent.name}_${experiment}_disc_${agent.params.discount}
+        dir: ./${now:%Y.%m.%d}/${now:%H%M}_${agent.name}_${experiment}_disc_${agent.params.discount}
