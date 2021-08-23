@@ -28,7 +28,7 @@ class RandomWindEnv(gym.Env):
         # setup the action and observation space
         self.config = config
         self.action_space = Box(-5, 5, (2,))
-        self.observation_space = Box(-5, 5, (8,))
+        self.observation_space = Box(-5, 5, (4,))
 
         # The SAC training script requires this attribute
         self._max_episode_steps = tf
@@ -55,10 +55,13 @@ class RandomWindEnv(gym.Env):
         # For rendering purposes
         self.last_frame = None
 
-        return np.concatenate([
+        '''return np.concatenate([
             [self.px[self.currrent_step - 1], self.py[self.currrent_step - 1]],
             [self.vx[self.currrent_step - 1], self.vy[self.currrent_step - 1]],
-            self.x])
+            self.x])'''
+        return np.array([
+            self.px[self.currrent_step - 1] - self.x[0], self.py[self.currrent_step - 1] - self.x[1],
+            self.vx[self.currrent_step - 1] - self.x[2], self.vy[self.currrent_step - 1] - self.x[3]])
 
     # Euler integration
     def _simulate(self, Δt, x, u):
@@ -103,10 +106,13 @@ class RandomWindEnv(gym.Env):
         else:
             reward = 0
 
-        observation = np.concatenate([
+        '''observation = np.concatenate([
             [self.px[self.currrent_step - 1], self.py[self.currrent_step - 1]],
             [self.vx[self.currrent_step - 1], self.vy[self.currrent_step - 1]],
-            self.x])
+            self.x])'''
+        observation = np.array([
+            self.px[self.currrent_step - 1] - self.x[0], self.py[self.currrent_step - 1] - self.x[1],
+            self.vx[self.currrent_step - 1] - self.x[2], self.vy[self.currrent_step - 1] - self.x[3]])
 
         if not (-5 <= self.x[0] <= 5 and -5 <= self.x[1] <= 5):
             reward -= 100
