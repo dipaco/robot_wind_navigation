@@ -129,7 +129,7 @@ class RandomWindEnv(gym.Env):
             {},
         )
 
-    def render(self, mode='rgb'):
+    def render(self, mode='rgb_array'):
 
         if self.currrent_step % 3 == 0 or self.last_frame is None:
 

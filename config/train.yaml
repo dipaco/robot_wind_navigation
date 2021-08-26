@@ -25,8 +25,13 @@ save_video: true
 
 seed: 1
 
+# turbulence options
+turbulence_model: NS
+sim_dim: 2
+turbulence_base_folder: /mnt/beegfs/data/diego/turbulence/
+
 # hydra configuration
 hydra:
     name: ${env}
     run:
-        dir: ./output/${now:%Y.%m.%d}/${now:%H%M}_${agent.name}_${experiment}_disc_${agent.params.discount}
+        dir: /mnt/beegfs/scratch/diegopc/logs/robots/${now:%Y.%m.%d}/${now:%H%M}_${agent.name}_${experiment}_disc_${agent.params.discount}

@@ -18,7 +18,9 @@ sys.path.append(dist_package_folder)
 from video import VideoRecorder
 from logger import Logger
 from replay_buffer import ReplayBuffer
-from environments import TurbulentWindEnv, RandomWindEnv
+from environments import TurbulentWindEnv, RandomWindEnv, TurbulentFormationEnv
+import matplotlib.pyplot as plt
+plt.switch_backend('agg')
 import utils
 
 import gym
@@ -49,7 +51,8 @@ def make_turbulence_env(cfg):
 
     #env = TurbulentWindEnv(cfg)
     #env = gym.make('MountainCarContinuous-v0')
-    env = RandomWindEnv(cfg)
+    #env = RandomWindEnv(cfg)
+    env = TurbulentFormationEnv(cfg)
     env.seed(cfg.seed)
 
     return env
