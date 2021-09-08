@@ -34,11 +34,13 @@ class TurbulentFormationEnv(gym.Env):
         # env shape   reference formation points
         self.bounds = np.array([-5.0, 5.0, -5.0, 5.0])  # xmin, xmax, ymin, ymax
 
+        self.MAX_ROBOT_ACCELERATION = 2.0
+
         # Team parameters and initializations
         self.n_agents = 3
 
         # state dimension
-        self.state_dim = 2
+        self.state_dim = 7
 
         # action dim
         self.action_dim = 2
@@ -84,8 +86,10 @@ class TurbulentFormationEnv(gym.Env):
             assert len(self.all_sims) > 0, f"There are no valid simulation in {self.config.turbulence_base_folder}"
 
         # setup the action and observation space
-        self.action_space = Box(self.bounds[0], self.bounds[1], (self.n_agents * self.action_dim,))
+        self.action_space = Box(-self.MAX_ROBOT_ACCELERATION, self.MAX_ROBOT_ACCELERATION, (self.n_agents * self.action_dim,))
         self.observation_space = Box(self.bounds[0], self.bounds[1], (self.n_agents * self.state_dim,))
+
+        #self.last_action = None
 
     def setup_random_turbulence(self):
         self.num_dist_seeds = 5
@@ -131,8 +135,8 @@ class TurbulentFormationEnv(gym.Env):
     def reset(self):
 
         # initialize robot pose
-        #self.p = np.array([[0.0, 0.0], [1.0, 0.0], [-2.0, 0.0]])
-        self.p = (self.bounds[1] - self.bounds[0]) * np.random.rand(self.n_agents, 2) + self.bounds[0]
+        self.p = np.array([[0.0, 0.0], [1.0, 0.0], [-2.0, 0.0]])
+        #self.p = (self.bounds[1] - self.bounds[0]) * np.random.rand(self.n_agents, 2) + self.bounds[0]
         self.vel = np.zeros_like(self.p)
 
         self.iter = 0
@@ -148,11 +152,39 @@ class TurbulentFormationEnv(gym.Env):
         elif self.config.turbulence_model == 'NS':
             self._setup_NS_turbulence()
 
-        # Observations are a flatten version of the state matrix
-        return self.p.reshape(-1)
+        # Get the wind velocity at the query points
+        if self.config.turbulence_model is not None:
+            v_we = self.get_disturbance(self.p)
+            # Velocity of the wind with respect to the robot
+            v_wr = v_we - self.vel
+        else:
+            v_wr = np.zeros_like(self.vel)
 
+        # Get the total pressure
+        P_t = self._get_pressure(v_wr)
+
+        # Observations are a flatten version of the state matrix
+        observation = np.concatenate([self.p, self.vel, v_wr, P_t], axis=1).reshape(-1)
+
+        return observation
+
+    def _get_pressure(self, v_wr):
+        # Get the pressure at the robot's locations
+        P_d = 0.5 * self.rho * (v_wr ** 2).sum(axis=1)
+        # Computes the total pressure
+        #P_t = P_d + self.P_s
+
+        return P_d[:, None]
 
     def step(self, action):
+
+        #action = np.zeros_like(action)
+        #print(action)
+
+        # Reshape and scale the action from the controller
+        action = self.MAX_ROBOT_ACCELERATION * action.reshape(self.n_agents, -1)
+
+        self.last_action = np.copy(action)
 
         # propagate goal point
         if self.iter > 100:
@@ -165,14 +197,27 @@ class TurbulentFormationEnv(gym.Env):
 
         acc[0, :] = 0.5 * self.K_p * (self.leader_goal - self.p[0, :]) + self.K_d * (leader_vel - self.vel[0, :])
 
+        # Applies the action from the RL control
+        # TODO: Should we apply the RL action to the leader too?
+        if self.config.use_turbulence_control:
+            acc[0, :] += action[0, :]
+
         for i in range(1, self.n_agents):
             for j in self.G.neighbors(i):
+                # Applies the formation control action
                 acc[i, :] += - self.K_p * ((self.p[i, :] - self.p[j, :]) + (self.formation_ref[i, :] - self.formation_ref[j, :])) - self.K_d * (self.vel[i, :] - self.vel[j, :])
 
+                # Applies the action from the RL control
+                if self.config.use_turbulence_control:
+                    acc[i, :] += action[i, :]
+
         # Get the wind velocity at the query points
-        v_we = self.get_disturbance(self.p)
-        # Velocity of the wind with respect to the robot
-        v_wr = v_we - self.vel
+        if self.config.turbulence_model is not None:
+            v_we = self.get_disturbance(self.p)
+            # Velocity of the wind with respect to the robot
+            v_wr = v_we - self.vel
+        else:
+            v_wr = np.zeros_like(self.vel)
 
         # simulate one time steps of the robots dynamics
         #self._simulate(acc)
@@ -180,15 +225,19 @@ class TurbulentFormationEnv(gym.Env):
         # simulate one time steps of the robots dynamics
         self._simulate_second_order(acc, v_wr)
 
-        # Get the pressure at the robot's locations
-        P_d = 0.5 * self.rho * (v_wr**2).sum(axis=1)
-        # Computes the total preasure
-        P_t = self.P_s + P_d
+        P_d = self._get_pressure(v_wr)
 
         # Observations are a flatten version of the state matrix
-        observation = self.p.reshape(-1)
+        observation = np.concatenate([self.p, self.vel, v_wr, P_d], axis=1).reshape(-1)
+        #observation = self.p.reshape(-1)
 
-        reward = self.compute_reward()
+        reward = 0.01 * self.compute_reward()
+
+        # check if any robot is out of the working space. If it is the case creates a big negative reward
+        bounds_cond = (self.p[:, 0] < self.bounds[0]) | (self.p[:, 0] > self.bounds[1]) | (
+                    self.p[:, 1] < self.bounds[2]) | (self.p[:, 1] > self.bounds[3])
+        if np.any(bounds_cond):
+            reward += -100.0
 
         self.iter += 1
         done = (self.iter >= self._max_episode_steps)
@@ -275,20 +324,28 @@ class TurbulentFormationEnv(gym.Env):
                 reward += np.linalg.norm(self.p[i, :] - self.p[j, :]) - \
                           np.linalg.norm(self.formation_ref[i, :] - self.formation_ref[j, :])
 
-        return reward
+        # TODO: Discuss if this operation, I think this error can be +/- and we need to maximaze the reward
+        # that sign oscillation can be problematic
+        return -np.abs(reward)
 
     def render(self, mode='rgb_array'):
 
         # Computes the disturbance vector field on a regular grid, for visualization
-        vf_res = 30
-        x, y = np.meshgrid(
-            np.linspace(self.bounds[0], self.bounds[1], vf_res),
-            np.linspace(self.bounds[0], self.bounds[-1], vf_res)
-        )
-        x = x.reshape(-1)
-        y = y.reshape(-1)
+        if self.config.turbulence_model is not None:
+            vf_res = 30
+            x, y = np.meshgrid(
+                np.linspace(self.bounds[0], self.bounds[1], vf_res),
+                np.linspace(self.bounds[0], self.bounds[-1], vf_res)
+            )
+            x = x.reshape(-1)
+            y = y.reshape(-1)
 
-        v = self.get_disturbance(np.stack([x, y], axis=1))
+            v = self.get_disturbance(np.stack([x, y], axis=1))
+
+        # Computes the plot title text
+        title = ''
+        for i in range(self.last_action.shape[0]):
+            title = f'{title} | Act. Node {i}=[{self.last_action[i, 0]:.2f}, {self.last_action[i, 1]:.2f}]'
 
         if self.fig is None:
             plt.ion()
@@ -321,9 +378,12 @@ class TurbulentFormationEnv(gym.Env):
 
             self.goal_handle = self.ax.scatter(self.leader_goal[0], self.leader_goal[1], 20, 'red')
 
+            self.ax.set_title(title, fontsize=8)
+
             # Draw the disturbance vector field
             # NOTE: For what ever the reason the bigger the `scale` the smaller the arrows are
-            self.vf_handle = self.ax.quiver(x, y, v[:, 0], v[:, 1], color=[0.4, 0.83, 0.97, 0.85], scale=200)
+            if self.config.turbulence_model is not None:
+                self.vf_handle = self.ax.quiver(x, y, v[:, 0], v[:, 1], color=[0.4, 0.83, 0.97, 0.85], scale=200)
 
             self.fig.canvas.draw()
             self.fig.canvas.flush_events()
@@ -336,8 +396,10 @@ class TurbulentFormationEnv(gym.Env):
 
             self.goal_handle.set_offsets(self.leader_goal)
 
-            #self.vf_handle.set_offsets(v)
-            self.vf_handle.set_UVC(v[:, 0], v[:, 1])
+            self.ax.set_title(title, fontsize=8)
+
+            if self.config.turbulence_model is not None:
+                self.vf_handle.set_UVC(v[:, 0], v[:, 1])
 
             self.fig.canvas.draw()
             self.fig.canvas.flush_events()

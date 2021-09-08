@@ -1,7 +1,8 @@
 agent:
   name: sac
-  class: agent.sac.SACAgent
+  class: gcnn_agents.GCNNSACAgent
   params:
+    num_nodes: ${formation_params.num_nodes}
     obs_dim: ??? # to be specified later
     action_dim: ??? # to be specified later
     action_range: ??? # to be specified later
@@ -10,29 +11,31 @@ agent:
     actor_cfg: ${diag_gaussian_actor}
     discount: 0.99
     init_temperature: 0.1
-    alpha_lr: 1e-3
+    alpha_lr: 1e-4
     alpha_betas: [0.9, 0.999]
-    actor_lr: 1e-3
+    actor_lr: 1e-4
     actor_betas: [0.9, 0.999]
     actor_update_frequency: 1
-    critic_lr: 1e-3
+    critic_lr: 1e-4
     critic_betas: [0.9, 0.999]
     critic_tau: 0.005
     critic_target_update_frequency: 2
-    batch_size: 256
+    batch_size: 1024
     learnable_temperature: true
     
 double_q_critic:
-  class: agent.critic.DoubleQCritic
+  class: gcnn_agents.GCNNDoubleQCritic
   params:
+    num_nodes: ${formation_params.num_nodes}
     obs_dim: ${agent.params.obs_dim}
     action_dim: ${agent.params.action_dim}
     hidden_dim: 256
     hidden_depth: 2
     
 diag_gaussian_actor:
-  class: agent.actor.DiagGaussianActor
+  class: gcnn_agents.GCNNDiagGaussianActor
   params:
+    num_nodes: ${formation_params.num_nodes}
     obs_dim: ${agent.params.obs_dim}
     action_dim: ${agent.params.action_dim}
     hidden_depth: 2
