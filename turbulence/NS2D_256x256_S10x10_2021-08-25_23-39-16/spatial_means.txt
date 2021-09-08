@@ -1,0 +1,100 @@
+####
+time = 0.00000e+00
+E    = 1.83028e+01 ; Z         = 5.95496e+01 
+epsK = 1.86033e-03 ; epsK_hypo = 0.00000e+00 ; epsK_tot = 1.86033e-03 
+epsZ = 7.67214e-03 ; epsZ_hypo = 0.00000e+00 ; epsZ_tot = 7.67214e-03 
+####
+time = 1.00046e+00
+E    = 1.83009e+01 ; Z         = 5.94786e+01 
+epsK = 1.85811e-03 ; epsK_hypo = 0.00000e+00 ; epsK_tot = 1.85811e-03 
+epsZ = 2.12670e-01 ; epsZ_hypo = 0.00000e+00 ; epsZ_tot = 2.12670e-01 
+####
+time = 2.00077e+00
+E    = 1.82990e+01 ; Z         = 5.89477e+01 
+epsK = 1.84153e-03 ; epsK_hypo = 0.00000e+00 ; epsK_tot = 1.84153e-03 
+epsZ = 6.70141e-01 ; epsZ_hypo = 0.00000e+00 ; epsZ_tot = 6.70141e-01 
+####
+time = 3.00144e+00
+E    = 1.82970e+01 ; Z         = 5.76149e+01 
+epsK = 1.79989e-03 ; epsK_hypo = 0.00000e+00 ; epsK_tot = 1.79989e-03 
+epsZ = 1.12161e+00 ; epsZ_hypo = 0.00000e+00 ; epsZ_tot = 1.12161e+00 
+####
+time = 4.00288e+00
+E    = 1.82949e+01 ; Z         = 5.52224e+01 
+epsK = 1.72515e-03 ; epsK_hypo = 0.00000e+00 ; epsK_tot = 1.72515e-03 
+epsZ = 1.45718e+00 ; epsZ_hypo = 0.00000e+00 ; epsZ_tot = 1.45718e+00 
+####
+time = 5.00392e+00
+E    = 1.82927e+01 ; Z         = 5.23009e+01 
+epsK = 1.63388e-03 ; epsK_hypo = 0.00000e+00 ; epsK_tot = 1.63388e-03 
+epsZ = 1.66400e+00 ; epsZ_hypo = 0.00000e+00 ; epsZ_tot = 1.66400e+00 
+####
+time = 6.00489e+00
+E    = 1.82905e+01 ; Z         = 4.89376e+01 
+epsK = 1.52881e-03 ; epsK_hypo = 0.00000e+00 ; epsK_tot = 1.52881e-03 
+epsZ = 1.70276e+00 ; epsZ_hypo = 0.00000e+00 ; epsZ_tot = 1.70276e+00 
+####
+time = 7.00602e+00
+E    = 1.82884e+01 ; Z         = 4.55713e+01 
+epsK = 1.42365e-03 ; epsK_hypo = 0.00000e+00 ; epsK_tot = 1.42365e-03 
+epsZ = 1.64790e+00 ; epsZ_hypo = 0.00000e+00 ; epsZ_tot = 1.64790e+00 
+####
+time = 8.00668e+00
+E    = 1.82862e+01 ; Z         = 4.18332e+01 
+epsK = 1.30687e-03 ; epsK_hypo = 0.00000e+00 ; epsK_tot = 1.30687e-03 
+epsZ = 1.52634e+00 ; epsZ_hypo = 0.00000e+00 ; epsZ_tot = 1.52634e+00 
+####
+time = 9.00699e+00
+E    = 1.82843e+01 ; Z         = 3.87806e+01 
+epsK = 1.21150e-03 ; epsK_hypo = 0.00000e+00 ; epsK_tot = 1.21150e-03 
+epsZ = 1.41985e+00 ; epsZ_hypo = 0.00000e+00 ; epsZ_tot = 1.41985e+00 
+####
+time = 1.00081e+01
+E    = 1.82826e+01 ; Z         = 3.60812e+01 
+epsK = 1.12718e-03 ; epsK_hypo = 0.00000e+00 ; epsK_tot = 1.12718e-03 
+epsZ = 1.31520e+00 ; epsZ_hypo = 0.00000e+00 ; epsZ_tot = 1.31520e+00 
+####
+time = 1.10087e+01
+E    = 1.82810e+01 ; Z         = 3.32869e+01 
+epsK = 1.03988e-03 ; epsK_hypo = 0.00000e+00 ; epsK_tot = 1.03988e-03 
+epsZ = 1.16716e+00 ; epsZ_hypo = 0.00000e+00 ; epsZ_tot = 1.16716e+00 
+####
+time = 1.20100e+01
+E    = 1.82794e+01 ; Z         = 3.08042e+01 
+epsK = 9.62323e-04 ; epsK_hypo = 0.00000e+00 ; epsK_tot = 9.62323e-04 
+epsZ = 1.03305e+00 ; epsZ_hypo = 0.00000e+00 ; epsZ_tot = 1.03305e+00 
+####
+time = 1.30118e+01
+E    = 1.82781e+01 ; Z         = 2.88440e+01 
+epsK = 9.01088e-04 ; epsK_hypo = 0.00000e+00 ; epsK_tot = 9.01088e-04 
+epsZ = 9.34711e-01 ; epsZ_hypo = 0.00000e+00 ; epsZ_tot = 9.34711e-01 
+####
+time = 1.40130e+01
+E    = 1.82768e+01 ; Z         = 2.69868e+01 
+epsK = 8.43068e-04 ; epsK_hypo = 0.00000e+00 ; epsK_tot = 8.43068e-04 
+epsZ = 8.36042e-01 ; epsZ_hypo = 0.00000e+00 ; epsZ_tot = 8.36042e-01 
+####
+time = 1.50133e+01
+E    = 1.82757e+01 ; Z         = 2.53260e+01 
+epsK = 7.91185e-04 ; epsK_hypo = 0.00000e+00 ; epsK_tot = 7.91185e-04 
+epsZ = 7.53668e-01 ; epsZ_hypo = 0.00000e+00 ; epsZ_tot = 7.53668e-01 
+####
+time = 1.60150e+01
+E    = 1.82746e+01 ; Z         = 2.38216e+01 
+epsK = 7.44188e-04 ; epsK_hypo = 0.00000e+00 ; epsK_tot = 7.44188e-04 
+epsZ = 6.64134e-01 ; epsZ_hypo = 0.00000e+00 ; epsZ_tot = 6.64134e-01 
+####
+time = 1.70156e+01
+E    = 1.82736e+01 ; Z         = 2.26019e+01 
+epsK = 7.06082e-04 ; epsK_hypo = 0.00000e+00 ; epsK_tot = 7.06082e-04 
+epsZ = 6.03186e-01 ; epsZ_hypo = 0.00000e+00 ; epsZ_tot = 6.03186e-01 
+####
+time = 1.80160e+01
+E    = 1.82727e+01 ; Z         = 2.15123e+01 
+epsK = 6.72043e-04 ; epsK_hypo = 0.00000e+00 ; epsK_tot = 6.72043e-04 
+epsZ = 5.45880e-01 ; epsZ_hypo = 0.00000e+00 ; epsZ_tot = 5.45880e-01 
+####
+time = 1.90165e+01
+E    = 1.82719e+01 ; Z         = 2.04852e+01 
+epsK = 6.39958e-04 ; epsK_hypo = 0.00000e+00 ; epsK_tot = 6.39958e-04 
+epsZ = 4.83624e-01 ; epsZ_hypo = 0.00000e+00 ; epsZ_tot = 4.83624e-01 

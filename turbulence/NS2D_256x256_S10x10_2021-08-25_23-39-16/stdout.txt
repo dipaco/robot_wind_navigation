@@ -1,0 +1,295 @@
+*************************************
+Program fluidsim
+sim:                <class 'fluidsim.solvers.ns2d.solver.Simul'>
+sim.output:         <class 'fluidsim.solvers.ns2d.output.Output'>
+sim.oper:           <class 'fluidsim.operators.operators2d.OperatorsPseudoSpectral2D'>
+sim.state:          <class 'fluidsim.solvers.ns2d.state.StateNS2D'>
+sim.time_stepping:  <class 'fluidsim.base.time_stepping.pseudo_spect.TimeSteppingPseudoSpectral'>
+sim.init_fields:    <class 'fluidsim.solvers.ns2d.init_fields.InitFieldsNS2D'>
+
+solver NS2D, RK4 and sequential,
+type fft: fluidfft.fft2d.with_pyfftw
+nx =    256 ; ny =    256
+lx = 10 ; ly = 10
+path_run =
+/home/diegopc/Sim_data/NS2D_256x256_S10x10_2021-08-25_23-39-16
+init_fields.type: noise
+
+Initialization outputs:
+sim.output.phys_fields:       <class 'fluidsim.base.output.phys_fields2d.PhysFieldsBase2D'>
+sim.output.spectra:           <class 'fluidsim.solvers.ns2d.output.spectra.SpectraNS2D'>
+sim.output.spectra_multidim:  <class 'fluidsim.solvers.ns2d.output.spectra_multidim.SpectraMultiDimNS2D'>
+sim.output.increments:        <class 'fluidsim.base.output.increments.Increments'>
+sim.output.spatial_means:     <class 'fluidsim.solvers.ns2d.output.spatial_means.SpatialMeansNS2D'>
+sim.output.spect_energy_budg: <class 'fluidsim.solvers.ns2d.output.spect_energy_budget.SpectralEnergyBudgetNS2D'>
+Size of state_spect (equiv. seq.): 0.528384 Mo
+*************************************
+Beginning of the computation
+save state_phys in file state_phys_t0000.000.nc
+    compute until t =         20
+it =      0 ; t =            0 ; deltat  =  0.0017591
+              energy = 1.830e+01 ; Delta energy = +0.000e+00
+
+save state_phys in file state_phys_t0000.101.nc
+save state_phys in file state_phys_t0000.200.nc
+save state_phys in file state_phys_t0000.301.nc
+save state_phys in file state_phys_t0000.400.nc
+save state_phys in file state_phys_t0000.501.nc
+save state_phys in file state_phys_t0000.601.nc
+save state_phys in file state_phys_t0000.700.nc
+save state_phys in file state_phys_t0000.801.nc
+save state_phys in file state_phys_t0000.900.nc
+it =    658 ; t =      1.00046 ; deltat  =   0.001466
+              energy = 1.830e+01 ; Delta energy = -1.862e-03
+              estimated remaining duration = 0:01:38
+save state_phys in file state_phys_t0001.000.nc
+save state_phys in file state_phys_t0001.101.nc
+save state_phys in file state_phys_t0001.201.nc
+save state_phys in file state_phys_t0001.300.nc
+save state_phys in file state_phys_t0001.401.nc
+save state_phys in file state_phys_t0001.501.nc
+save state_phys in file state_phys_t0001.601.nc
+save state_phys in file state_phys_t0001.701.nc
+save state_phys in file state_phys_t0001.800.nc
+save state_phys in file state_phys_t0001.901.nc
+it =   1296 ; t =      2.00077 ; deltat  =  0.0017783
+              energy = 1.830e+01 ; Delta energy = -1.889e-03
+              estimated remaining duration = 0:01:35
+save state_phys in file state_phys_t0002.001.nc
+save state_phys in file state_phys_t0002.101.nc
+save state_phys in file state_phys_t0002.201.nc
+save state_phys in file state_phys_t0002.301.nc
+save state_phys in file state_phys_t0002.400.nc
+save state_phys in file state_phys_t0002.501.nc
+save state_phys in file state_phys_t0002.601.nc
+save state_phys in file state_phys_t0002.700.nc
+save state_phys in file state_phys_t0002.801.nc
+save state_phys in file state_phys_t0002.900.nc
+it =   1919 ; t =      3.00144 ; deltat  =  0.0014795
+              energy = 1.830e+01 ; Delta energy = -1.988e-03
+              estimated remaining duration = 0:01:28
+save state_phys in file state_phys_t0003.001.nc
+save state_phys in file state_phys_t0003.101.nc
+save state_phys in file state_phys_t0003.200.nc
+save state_phys in file state_phys_t0003.300.nc
+save state_phys in file state_phys_t0003.401.nc
+save state_phys in file state_phys_t0003.501.nc
+save state_phys in file state_phys_t0003.601.nc
+save state_phys in file state_phys_t0003.701.nc
+save state_phys in file state_phys_t0003.801.nc
+save state_phys in file state_phys_t0003.901.nc
+it =   2557 ; t =      4.00136 ; deltat  =  0.0015178
+              energy = 1.829e+01 ; Delta energy = -2.161e-03
+              estimated remaining duration = 0:01:24
+save state_phys in file state_phys_t0004.001.nc
+save state_phys in file state_phys_t0004.100.nc
+save state_phys in file state_phys_t0004.201.nc
+save state_phys in file state_phys_t0004.300.nc
+save state_phys in file state_phys_t0004.400.nc
+save state_phys in file state_phys_t0004.500.nc
+save state_phys in file state_phys_t0004.601.nc
+save state_phys in file state_phys_t0004.700.nc
+save state_phys in file state_phys_t0004.801.nc
+save state_phys in file state_phys_t0004.901.nc
+it =   3174 ; t =      5.00074 ; deltat  =  0.0015908
+              energy = 1.829e+01 ; Delta energy = -2.162e-03
+              estimated remaining duration = 0:01:16
+save state_phys in file state_phys_t0005.001.nc
+save state_phys in file state_phys_t0005.100.nc
+save state_phys in file state_phys_t0005.202.nc
+save state_phys in file state_phys_t0005.300.nc
+save state_phys in file state_phys_t0005.400.nc
+save state_phys in file state_phys_t0005.501.nc
+save state_phys in file state_phys_t0005.601.nc
+save state_phys in file state_phys_t0005.702.nc
+save state_phys in file state_phys_t0005.802.nc
+save state_phys in file state_phys_t0005.900.nc
+it =   3761 ; t =      6.00143 ; deltat  =  0.0017327
+              energy = 1.829e+01 ; Delta energy = -2.210e-03
+              estimated remaining duration = 0:01:09
+save state_phys in file state_phys_t0006.001.nc
+save state_phys in file state_phys_t0006.102.nc
+save state_phys in file state_phys_t0006.202.nc
+save state_phys in file state_phys_t0006.301.nc
+save state_phys in file state_phys_t0006.401.nc
+save state_phys in file state_phys_t0006.501.nc
+save state_phys in file state_phys_t0006.600.nc
+save state_phys in file state_phys_t0006.700.nc
+save state_phys in file state_phys_t0006.801.nc
+save state_phys in file state_phys_t0006.901.nc
+it =   4317 ; t =       7.0001 ; deltat  =   0.001976
+              energy = 1.829e+01 ; Delta energy = -2.111e-03
+              estimated remaining duration = 0:01:01
+save state_phys in file state_phys_t0007.000.nc
+save state_phys in file state_phys_t0007.102.nc
+save state_phys in file state_phys_t0007.200.nc
+save state_phys in file state_phys_t0007.301.nc
+save state_phys in file state_phys_t0007.401.nc
+save state_phys in file state_phys_t0007.502.nc
+save state_phys in file state_phys_t0007.600.nc
+save state_phys in file state_phys_t0007.702.nc
+save state_phys in file state_phys_t0007.802.nc
+save state_phys in file state_phys_t0007.901.nc
+it =   4821 ; t =      8.00085 ; deltat  =   0.001944
+              energy = 1.829e+01 ; Delta energy = -2.193e-03
+              estimated remaining duration = 0:00:52
+save state_phys in file state_phys_t0008.001.nc
+save state_phys in file state_phys_t0008.102.nc
+save state_phys in file state_phys_t0008.201.nc
+save state_phys in file state_phys_t0008.300.nc
+save state_phys in file state_phys_t0008.401.nc
+save state_phys in file state_phys_t0008.502.nc
+save state_phys in file state_phys_t0008.601.nc
+save state_phys in file state_phys_t0008.701.nc
+save state_phys in file state_phys_t0008.802.nc
+save state_phys in file state_phys_t0008.901.nc
+it =   5340 ; t =      9.00138 ; deltat  =  0.0018708
+              energy = 1.828e+01 ; Delta energy = -1.880e-03
+              estimated remaining duration = 0:00:49
+save state_phys in file state_phys_t0009.001.nc
+save state_phys in file state_phys_t0009.101.nc
+save state_phys in file state_phys_t0009.201.nc
+save state_phys in file state_phys_t0009.302.nc
+save state_phys in file state_phys_t0009.401.nc
+save state_phys in file state_phys_t0009.501.nc
+save state_phys in file state_phys_t0009.601.nc
+save state_phys in file state_phys_t0009.701.nc
+save state_phys in file state_phys_t0009.801.nc
+save state_phys in file state_phys_t0009.901.nc
+it =   5873 ; t =      10.0005 ; deltat  =  0.0018858
+              energy = 1.828e+01 ; Delta energy = -1.669e-03
+              estimated remaining duration = 0:00:45
+save state_phys in file state_phys_t0010.001.nc
+save state_phys in file state_phys_t0010.100.nc
+save state_phys in file state_phys_t0010.202.nc
+save state_phys in file state_phys_t0010.302.nc
+save state_phys in file state_phys_t0010.401.nc
+save state_phys in file state_phys_t0010.502.nc
+save state_phys in file state_phys_t0010.600.nc
+save state_phys in file state_phys_t0010.701.nc
+save state_phys in file state_phys_t0010.802.nc
+save state_phys in file state_phys_t0010.902.nc
+it =   6378 ; t =      11.0004 ; deltat  =  0.0020576
+              energy = 1.828e+01 ; Delta energy = -1.672e-03
+              estimated remaining duration = 0:00:39
+save state_phys in file state_phys_t0011.000.nc
+save state_phys in file state_phys_t0011.101.nc
+save state_phys in file state_phys_t0011.200.nc
+save state_phys in file state_phys_t0011.300.nc
+save state_phys in file state_phys_t0011.401.nc
+save state_phys in file state_phys_t0011.500.nc
+save state_phys in file state_phys_t0011.601.nc
+save state_phys in file state_phys_t0011.702.nc
+save state_phys in file state_phys_t0011.800.nc
+save state_phys in file state_phys_t0011.901.nc
+it =   6862 ; t =      12.0019 ; deltat  =  0.0020172
+              energy = 1.828e+01 ; Delta energy = -1.551e-03
+              estimated remaining duration = 0:00:34
+save state_phys in file state_phys_t0012.002.nc
+save state_phys in file state_phys_t0012.102.nc
+save state_phys in file state_phys_t0012.200.nc
+save state_phys in file state_phys_t0012.301.nc
+save state_phys in file state_phys_t0012.401.nc
+save state_phys in file state_phys_t0012.501.nc
+save state_phys in file state_phys_t0012.602.nc
+save state_phys in file state_phys_t0012.701.nc
+save state_phys in file state_phys_t0012.802.nc
+save state_phys in file state_phys_t0012.901.nc
+it =   7371 ; t =      13.0019 ; deltat  =  0.0019821
+              energy = 1.828e+01 ; Delta energy = -1.310e-03
+              estimated remaining duration = 0:00:31
+save state_phys in file state_phys_t0013.002.nc
+save state_phys in file state_phys_t0013.101.nc
+save state_phys in file state_phys_t0013.200.nc
+save state_phys in file state_phys_t0013.300.nc
+save state_phys in file state_phys_t0013.402.nc
+save state_phys in file state_phys_t0013.500.nc
+save state_phys in file state_phys_t0013.602.nc
+save state_phys in file state_phys_t0013.702.nc
+save state_phys in file state_phys_t0013.800.nc
+save state_phys in file state_phys_t0013.901.nc
+it =   7860 ; t =      14.0007 ; deltat  =  0.0020258
+              energy = 1.828e+01 ; Delta energy = -1.256e-03
+              estimated remaining duration = 0:00:26
+save state_phys in file state_phys_t0014.001.nc
+save state_phys in file state_phys_t0014.101.nc
+save state_phys in file state_phys_t0014.200.nc
+save state_phys in file state_phys_t0014.302.nc
+save state_phys in file state_phys_t0014.402.nc
+save state_phys in file state_phys_t0014.501.nc
+save state_phys in file state_phys_t0014.601.nc
+save state_phys in file state_phys_t0014.701.nc
+save state_phys in file state_phys_t0014.800.nc
+save state_phys in file state_phys_t0014.902.nc
+it =   8346 ; t =      15.0012 ; deltat  =  0.0020292
+              energy = 1.828e+01 ; Delta energy = -1.163e-03
+              estimated remaining duration = 0:00:21
+save state_phys in file state_phys_t0015.001.nc
+save state_phys in file state_phys_t0015.101.nc
+save state_phys in file state_phys_t0015.201.nc
+save state_phys in file state_phys_t0015.301.nc
+save state_phys in file state_phys_t0015.400.nc
+save state_phys in file state_phys_t0015.502.nc
+save state_phys in file state_phys_t0015.602.nc
+save state_phys in file state_phys_t0015.701.nc
+save state_phys in file state_phys_t0015.801.nc
+save state_phys in file state_phys_t0015.901.nc
+it =   8823 ; t =      16.0005 ; deltat  =  0.0020737
+              energy = 1.827e+01 ; Delta energy = -1.085e-03
+              estimated remaining duration = 0:00:16
+save state_phys in file state_phys_t0016.000.nc
+save state_phys in file state_phys_t0016.100.nc
+save state_phys in file state_phys_t0016.202.nc
+save state_phys in file state_phys_t0016.301.nc
+save state_phys in file state_phys_t0016.401.nc
+save state_phys in file state_phys_t0016.500.nc
+save state_phys in file state_phys_t0016.601.nc
+save state_phys in file state_phys_t0016.701.nc
+save state_phys in file state_phys_t0016.801.nc
+save state_phys in file state_phys_t0016.900.nc
+it =   9313 ; t =      17.0017 ; deltat  =  0.0019909
+              energy = 1.827e+01 ; Delta energy = -9.641e-04
+              estimated remaining duration = 0:00:12
+save state_phys in file state_phys_t0017.002.nc
+save state_phys in file state_phys_t0017.101.nc
+save state_phys in file state_phys_t0017.201.nc
+save state_phys in file state_phys_t0017.300.nc
+save state_phys in file state_phys_t0017.402.nc
+save state_phys in file state_phys_t0017.501.nc
+save state_phys in file state_phys_t0017.601.nc
+save state_phys in file state_phys_t0017.700.nc
+save state_phys in file state_phys_t0017.800.nc
+save state_phys in file state_phys_t0017.902.nc
+it =   9802 ; t =      18.0015 ; deltat  =  0.0020761
+              energy = 1.827e+01 ; Delta energy = -8.973e-04
+              estimated remaining duration = 0:00:08
+save state_phys in file state_phys_t0018.001.nc
+save state_phys in file state_phys_t0018.100.nc
+save state_phys in file state_phys_t0018.200.nc
+save state_phys in file state_phys_t0018.302.nc
+save state_phys in file state_phys_t0018.402.nc
+save state_phys in file state_phys_t0018.502.nc
+save state_phys in file state_phys_t0018.600.nc
+save state_phys in file state_phys_t0018.700.nc
+save state_phys in file state_phys_t0018.800.nc
+save state_phys in file state_phys_t0018.900.nc
+it =  10276 ; t =      19.0019 ; deltat  =  0.0020801
+              energy = 1.827e+01 ; Delta energy = -8.663e-04
+              estimated remaining duration = 0:00:04
+save state_phys in file state_phys_t0019.002.nc
+save state_phys in file state_phys_t0019.102.nc
+save state_phys in file state_phys_t0019.202.nc
+save state_phys in file state_phys_t0019.301.nc
+save state_phys in file state_phys_t0019.401.nc
+save state_phys in file state_phys_t0019.501.nc
+save state_phys in file state_phys_t0019.602.nc
+save state_phys in file state_phys_t0019.701.nc
+save state_phys in file state_phys_t0019.801.nc
+save state_phys in file state_phys_t0019.901.nc
+Computation completed in  91.1774 s
+path_run =
+/home/diegopc/Sim_data/NS2D_256x256_S10x10_2021-08-25_23-39-16
+it =  10755 ; t =      20.0012 ; deltat  =  0.0021691
+              energy = 1.827e+01 ; Delta energy = -7.937e-04
+              estimated remaining duration = 0:00:00
+save state_phys in file state_phys_t0020.001.nc

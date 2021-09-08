@@ -19,12 +19,17 @@ class TurbulentFormationEnv(gym.Env):
         # setup the config options
         self.config = config
 
+        # Formation 0=triangle   1=platoon 
+        formation=0
+
         # Wind simulation constants
         # air density at 25 Cº https://www.engineeringtoolbox.com/air-density-specific-weight-d_600.html?vA=30&units=C#
-        self.rho = 1.184
+        #self.rho = 1.184
+        self.rho = 0.184
         self.P_s = 101325   # 1 atm in Pascal units
         # mass in Kg
         self.m = 0.2
+        
         # reference area of a sphere or r=10 cm
         self.robot_radius = 0.05
         self.area = 4 * np.pi * (self.robot_radius ** 2)
@@ -32,10 +37,11 @@ class TurbulentFormationEnv(gym.Env):
         self.c_d = 0.47
 
         # env shape   reference formation points
-        self.bounds = np.array([-5.0, 5.0, -5.0, 5.0])  # xmin, xmax, ymin, ymax
+        self.bounds = np.array([-10.0, 5.0, -10.0, 5.0])  # xmin, xmax, ymin, ymax
 
         # Team parameters and initializations
-        self.n_agents = 3
+        self.n_agents = 21
+        #self.n_agents = 19
 
         # state dimension
         self.state_dim = 2
@@ -43,8 +49,10 @@ class TurbulentFormationEnv(gym.Env):
         # action dim
         self.action_dim = 2
 
-        #self.p = np.array([[0.0, 0.0], [1.0, 0.0], [-1.0, 0.0]])
         self.p = (self.bounds[1] - self.bounds[0]) * np.random.rand(self.n_agents, 2) + self.bounds[0]
+        #self.p = np.array([[0.0, 0.0], [0.0, 1.0], [0.0, 2.0],[0.0,3.0], [0.0,4], [0.0,5.0], [1,0], [1,1], [1,2], [1,3], [1,4], [2,0], [2,1], [2,2], [2,3], [3,0], [3,1], [3,2], [4,0], [4,1], [5,0]])*1.5
+
+
         self.vel = np.zeros_like(self.p)
 
         # goal location for leader
@@ -57,16 +65,19 @@ class TurbulentFormationEnv(gym.Env):
         # specify the formation graph
         self.G = nx.Graph()
         self.G.add_nodes_from(range(self.n_agents))
-        self.G.add_edges_from([(0, 1), (1, 2), (2, 0)])
 
+        self._form_conf(formation)
+        
         # simulation time step and timing parameter
         self.iter = 0
         self._max_episode_steps = 450
-
+        
         self.dt = 0.033
         self.done = False
 
-        self.formation_ref = np.array([[0.0, 0.0], [1.0, 0.0], [1.0 / np.sqrt(2), 1.0 / np.sqrt(2)]])
+        
+        #  Vector Error Initialization  
+        self.error = np.zeros((self._max_episode_steps,self.n_agents))
 
         # plotting
         self.fig = None
@@ -131,8 +142,8 @@ class TurbulentFormationEnv(gym.Env):
     def reset(self):
 
         # initialize robot pose
-        #self.p = np.array([[0.0, 0.0], [1.0, 0.0], [-2.0, 0.0]])
         self.p = (self.bounds[1] - self.bounds[0]) * np.random.rand(self.n_agents, 2) + self.bounds[0]
+        
         self.vel = np.zeros_like(self.p)
 
         self.iter = 0
@@ -169,6 +180,14 @@ class TurbulentFormationEnv(gym.Env):
             for j in self.G.neighbors(i):
                 acc[i, :] += - self.K_p * ((self.p[i, :] - self.p[j, :]) + (self.formation_ref[i, :] - self.formation_ref[j, :])) - self.K_d * (self.vel[i, :] - self.vel[j, :])
 
+        # Position error calculation
+        for i in range(0, self.n_agents):
+            sum_error=0
+            for j in self.G.neighbors(i):
+                sum_error=np.sqrt((self.p[i, :] - self.p[j, :]) @ (self.p[i, :] - self.p[j, :]).T ) -   np.sqrt((self.formation_ref[i, :] - self.formation_ref[j, :])@ (self.formation_ref[i, :] - self.formation_ref[j, :]).T) 
+                self.error[self.iter,i] += sum_error
+                #print(i,' ',j,'__')  
+
         # Get the wind velocity at the query points
         v_we = self.get_disturbance(self.p)
         # Velocity of the wind with respect to the robot
@@ -177,9 +196,9 @@ class TurbulentFormationEnv(gym.Env):
         # simulate one time steps of the robots dynamics
         #self._simulate(acc)
 
-        # simulate one time steps of the robots dynamics
         self._simulate_second_order(acc, v_wr)
 
+        # simulate one time steps of the robots dynamics
         # Get the pressure at the robot's locations
         P_d = 0.5 * self.rho * (v_wr**2).sum(axis=1)
         # Computes the total preasure
@@ -192,6 +211,12 @@ class TurbulentFormationEnv(gym.Env):
 
         self.iter += 1
         done = (self.iter >= self._max_episode_steps)
+
+        if  (self.iter >= self._max_episode_steps):
+            self._plot_episode()
+            self.error = np.zeros((self._max_episode_steps,self.n_agents))
+                
+
 
         return observation, reward, done, {}
 
@@ -298,9 +323,9 @@ class TurbulentFormationEnv(gym.Env):
             fig_pixel_height = 540  # Height of video in pixels.
             dpi = 150  # Pixels per inch (affects fonts and apparent size of inch-scale objects).
 
-            # Set the figure to obtain aspect ratio and pixel size.
             fig_w = fig_pixel_height / dpi * fig_aspect_ratio  # inches
             fig_h = fig_pixel_height / dpi  # inches
+            # Set the figure to obtain aspect ratio and pixel size.
             self.fig, self.ax = plt.subplots(1, 1, figsize=(fig_w, fig_h), constrained_layout=True, dpi=dpi)
             self.ax.set_xlabel('x')
             self.ax.set_ylabel('y')
@@ -347,3 +372,33 @@ class TurbulentFormationEnv(gym.Env):
             image_from_plot = image_from_plot.reshape(self.fig.canvas.get_width_height()[::-1] + (3,))
 
             return image_from_plot
+
+    def _form_conf(self,formation):
+        if formation==0:
+            self.G.add_edges_from([(0,1),(1,2), (2,3), (3,4), (4,5), (0,6), (1,7), (2,8), (3,9), (4,10), (6,7), (7,8), (8,9), (9,10), (11,6), (12,7), (13,8), (14,9), (11,12), (12,13), (13,14), (15,11), (16,12), (17,13), (15,16), (16,17), (18,15), (19,16), (18,19), (20,18)])
+            self.formation_ref = np.array([[0.0, 0.0], [0.0, 1.0], [0.0, 2.0],[0.0,3.0], [0.0,4], [0.0,5.0], [1,0], [1,1], [1,2], [1,3], [1,4], [2,0], [2,1], [2,2], [2,3], [3,0], [3,1], [3,2], [4,0], [4,1], [5,0]])*1.5
+        else:        
+            self.G.add_edges_from([(0,1),(1,2), (2,3), (3,4), (4,5), (5,6), (6,7), (7,8), (8,9), (9,10), (10,11), (11,12), (12,13), (13,14), (14,15), (15,16), (16,17), (17,18), (18,19), (19,20)])
+            self.formation_ref = np.array([[0.0, 0.0], [0.5, 0.5], [1.0, 1.0],[1.5,1.5], [2,2], [2.5,2.5], [3,3], [3.5,3.5], [4,4], [4.5,4.5], [5,5], [5.5,5.5], [6,6], [6.5,6.5], [7,7], [7.5,7.5], [8,8], [8.5,8.5], [9,9], [9.5,9.5], [10,10]])                    
+
+
+    def _plot_episode(self):
+        #print(self.error[0:20,0:3],'  ',p)
+        plt.figure(1)
+        for i in range(0,self.n_agents):
+            plt.plot(range(0,self._max_episode_steps),self.error[0:self._max_episode_steps,i],label='Robot '+str(i))
+        plt.legend(loc='upper right', prop={'size': 6})
+        plt.grid()
+        plt.savefig('saved_figure_total.png')
+        plt.clf()
+        plt.figure(2)
+        for i in range(0,self.n_agents):
+            plt.plot(range(50,self._max_episode_steps),self.error[50:self._max_episode_steps,i],label='Robot '+str(i))
+        plt.legend(loc='upper right', prop={'size': 6})
+        plt.grid()
+        plt.savefig('saved_figure_50_MaxSteps.png')
+        plt.clf()
+
+        
+     
+

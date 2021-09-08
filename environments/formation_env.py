@@ -8,38 +8,55 @@ import networkx as nx
 
 class FormationEnv(gym.Env):
     def __init__(self):
+	# Formation Parameter
+        formation=2
+
         # Team parameters and initializations
-        self.n_agents = 3
+        #self.n_agents = 3
+        self.n_agents = 12
 
         # state dimension
         self.state_dim = 2
 
-        self.p = np.array([[0.0, 0.0], [1.0, 0.0], [-1.0, 0.0]])
+        #self.p = np.array([[0.0, 0.0], [1.0, 0.0], [-1.0, 0.0]])
+        self.p = np.array([[0.0, 0.0], [1.0, 0.0], [-1.0, 3.0], [-5.0, -1.0], [-1.0, -6.0], [-2.0, -7.0], [-2.0, -9.0], [-8.0, -1.0], [-10.0, -3.0], [-11.0, -2.0], [-4.0, -7.0], [-8.0, -4.0]])
+        
+        
         self.vel = np.zeros_like(self.p)
 
         # goal location for leader
         self.leader_goal = np.array([2.0, 2.0])
-        self.final_goal = np.array([5.0, 5.0])
+        self.final_goal = np.array([20.0, 20.0])
 
         # proportional gain for goal controller
-        self.K_p = 1.0
-        self.K_d = 0.5
+        #self.K_p = 1.0
+        #self.K_d = 0.8
+        self.K_p = 4.0
+        self.K_d = 0.8
         # specify the formation graph
         self.G = nx.Graph()
         self.G.add_nodes_from(range(self.n_agents))
-        self.G.add_edges_from([(0, 1), (1, 2), (2, 0)])
+        #self.G.add_edges_from([(0, 1), (1, 2), (2, 0)])
+        self.G.add_edges_from([(0, 1), (0, 2), (0, 3), (0,4), (0,5), (0,6), (0,7), (0,8), (0,9), (0,10), (0,11)])
 
         # simulation time step and timing parameter
         self.iter = 0
         self.max_steps = 200
 
-        self.dt = 0.033
+        self.dt = 0.033/1
         self.done = False
 
         # env shape   reference formation points
-        self.bounds = np.array([-5.0, 5.0, -5.0, 5.0])  # xmin, xmax, ymin, ymax
+        self.bounds = np.array([-15.0, 25.0, -15.0, 25.0])  # xmin, xmax, ymin, ymax
 
-        self.formation_ref = np.array([[0.0, 0.0], [1.0, 0.0], [1.0 / np.sqrt(2), 1.0 / np.sqrt(2)]])
+        #self.formation_ref = np.array([[0.0, 0.0], [1.0, 0.0], [1.0 / np.sqrt(2), 1.0 / np.sqrt(2)]])
+        
+
+        if (formation==0):
+            self.formation_ref = np.array([[0.0, 0.0], [1.0, 1.0], [2.0, 2.0], [3.0, 3.0], [4.0, 4.0], [5.0, 5.0], [6.0, 6.0], [7.0, 7.0], [8.0, 8.0], [9.0, 9.0], [10.0, 10.0], [11.0, 11.0] ])*2
+        elif(formation==1):
+            self.formation_ref = np.array([[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [0.0, 3.0], [3.0, 0.0], [0.0, 5.0], [5.0, 0.0], [0.0, 7.0], [7.0, 0.0], [0.0, 9.0], [9.0, 0.0], [9.0, 9.0] ])*2
+        else: self.formation_ref = np.array([[0.0, 0.0], [1.0, 1.0], [1.0, 2.0], [1.0, 3.0], [1.0, 4.0], [2.0, 1.0], [2.0, 2.0], [2.0, 3.0], [3.0, 1.0], [3.0, 2.0], [4.0, 1.0], [3.0, 3.0] ])*3
 
         # plotting
         self.fig = None
@@ -47,7 +64,7 @@ class FormationEnv(gym.Env):
     def reset(self):
 
         # initialize robot pose
-        self.p = np.array([[0.0, 0.0], [1.0, 0.0], [-2.0, 0.0]])
+        self.p = np.array([[0.0, 0.0], [1.0, 0.0], [-2.0, 0.0],[-2.0, 1.0], [-1.0, -1.0], [-1.0, -1.0], [-1.0, -1.0], [-1.0, -1.0], [-1.0, -1.0], [-1.0, -1.0], [-1.0, -1.0], [-1.0, -1.0]  ])
         self.vel = np.zeros_like(self.p)
 
         self.iter = 0
@@ -138,7 +155,7 @@ class FormationEnv(gym.Env):
 
             self.fig.canvas.draw()
             self.fig.canvas.flush_events()
-
+            #self.ax.grid()
             # TODO: Add beautiful renderings for wind!
 
         else:
