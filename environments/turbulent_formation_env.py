@@ -20,7 +20,8 @@ class TurbulentFormationEnv(gym.Env):
         self.config = config
 
         # Formation 0=triangle   1=platoon 
-        formation=0
+        self.formation_type=0
+        self.formation_init=1  # 0=random,  1=goal point 
 
         # Wind simulation constants
         # air density at 25 Cº https://www.engineeringtoolbox.com/air-density-specific-weight-d_600.html?vA=30&units=C#
@@ -29,6 +30,8 @@ class TurbulentFormationEnv(gym.Env):
         self.P_s = 101325   # 1 atm in Pascal units
         # mass in Kg
         self.m = 0.2
+        #self.m = 0.1
+
         
         # reference area of a sphere or r=10 cm
         self.robot_radius = 0.05
@@ -66,7 +69,7 @@ class TurbulentFormationEnv(gym.Env):
         self.G = nx.Graph()
         self.G.add_nodes_from(range(self.n_agents))
 
-        self._form_conf(formation)
+        self._form_conf()
         
         # simulation time step and timing parameter
         self.iter = 0
@@ -143,6 +146,7 @@ class TurbulentFormationEnv(gym.Env):
 
         # initialize robot pose
         self.p = (self.bounds[1] - self.bounds[0]) * np.random.rand(self.n_agents, 2) + self.bounds[0]
+        self._form_conf()
         
         self.vel = np.zeros_like(self.p)
 
@@ -373,13 +377,18 @@ class TurbulentFormationEnv(gym.Env):
 
             return image_from_plot
 
-    def _form_conf(self,formation):
-        if formation==0:
+    def _form_conf(self):
+        if self.formation_type==0:
             self.G.add_edges_from([(0,1),(1,2), (2,3), (3,4), (4,5), (0,6), (1,7), (2,8), (3,9), (4,10), (6,7), (7,8), (8,9), (9,10), (11,6), (12,7), (13,8), (14,9), (11,12), (12,13), (13,14), (15,11), (16,12), (17,13), (15,16), (16,17), (18,15), (19,16), (18,19), (20,18)])
             self.formation_ref = np.array([[0.0, 0.0], [0.0, 1.0], [0.0, 2.0],[0.0,3.0], [0.0,4], [0.0,5.0], [1,0], [1,1], [1,2], [1,3], [1,4], [2,0], [2,1], [2,2], [2,3], [3,0], [3,1], [3,2], [4,0], [4,1], [5,0]])*1.5
         else:        
             self.G.add_edges_from([(0,1),(1,2), (2,3), (3,4), (4,5), (5,6), (6,7), (7,8), (8,9), (9,10), (10,11), (11,12), (12,13), (13,14), (14,15), (15,16), (16,17), (17,18), (18,19), (19,20)])
             self.formation_ref = np.array([[0.0, 0.0], [0.5, 0.5], [1.0, 1.0],[1.5,1.5], [2,2], [2.5,2.5], [3,3], [3.5,3.5], [4,4], [4.5,4.5], [5,5], [5.5,5.5], [6,6], [6.5,6.5], [7,7], [7.5,7.5], [8,8], [8.5,8.5], [9,9], [9.5,9.5], [10,10]])                    
+
+
+        if self.formation_init==0:
+            self.p = (self.bounds[1] - self.bounds[0]) * np.random.rand(self.n_agents, 2) + self.bounds[0]
+        else: self.p=self.formation_ref*(-1)
 
 
     def _plot_episode(self):
