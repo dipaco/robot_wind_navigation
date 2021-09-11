@@ -19,6 +19,8 @@ class TurbulentFormationEnv(gym.Env):
         # setup the config options
         self.config = config
 
+        # Quadracopters info: https://funoffline.com/how-much-does-a-drone-weigh/
+
         # Wind simulation constants
         # air density at 25 Cº https://www.engineeringtoolbox.com/air-density-specific-weight-d_600.html?vA=30&units=C#
         self.rho = 1.184
@@ -26,7 +28,7 @@ class TurbulentFormationEnv(gym.Env):
         # mass in Kg
         self.m = 0.2
         # reference area of a sphere or r=10 cm
-        self.robot_radius = 0.05
+        self.robot_radius = 0.1
         self.area = 4 * np.pi * (self.robot_radius ** 2)
         # drag coefficient of a sphere
         self.c_d = 0.47
@@ -34,41 +36,40 @@ class TurbulentFormationEnv(gym.Env):
         # env shape   reference formation points
         self.bounds = np.array([-5.0, 5.0, -5.0, 5.0])  # xmin, xmax, ymin, ymax
 
-        self.MAX_ROBOT_ACCELERATION = 2.0
+        self.MAX_ROBOT_ACCELERATION = (self.bounds[1] - self.bounds[0])
 
         # Team parameters and initializations
-        self.n_agents = 3
+        self.n_agents = self.config.formation_params.num_nodes
 
         # state dimension
-        self.state_dim = 7
+        self.state_dim = 12
 
         # action dim
         self.action_dim = 2
 
+        self.set_formation_conf()
+        randon_translation = 0.3 * (self.bounds[1] - self.bounds[0]) * (2*np.random.rand(1, 2) - 1)
+        self.p = np.copy(self.formation_ref) + randon_translation
+
         #self.p = np.array([[0.0, 0.0], [1.0, 0.0], [-1.0, 0.0]])
-        self.p = (self.bounds[1] - self.bounds[0]) * np.random.rand(self.n_agents, 2) + self.bounds[0]
+        #self.p = (self.bounds[1] - self.bounds[0]) * np.random.rand(self.n_agents, 2) + self.bounds[0]
         self.vel = np.zeros_like(self.p)
 
         # goal location for leader
-        self.leader_goal = np.array([2.0, 2.0])
+        #self.leader_goal = np.array([2.0, 2.0])
+        self.leader_goal = self.p[0, :]
         self.final_goal = np.array([0.0, 0.0])
 
         # proportional gain for goal controller
-        self.K_p = 1.0*5
-        self.K_d = 0.5*5
-        # specify the formation graph
-        self.G = nx.Graph()
-        self.G.add_nodes_from(range(self.n_agents))
-        self.G.add_edges_from([(0, 1), (1, 2), (2, 0)])
+        self.K_p = 1.0*5*4
+        self.K_d = 0.5*5*4
 
         # simulation time step and timing parameter
         self.iter = 0
         self._max_episode_steps = 450
 
-        self.dt = 0.033
+        self.dt = 0.066
         self.done = False
-
-        self.formation_ref = np.array([[0.0, 0.0], [1.0, 0.0], [1.0 / np.sqrt(2), 1.0 / np.sqrt(2)]])
 
         # plotting
         self.fig = None
@@ -135,9 +136,14 @@ class TurbulentFormationEnv(gym.Env):
     def reset(self):
 
         # initialize robot pose
-        self.p = np.array([[0.0, 0.0], [1.0, 0.0], [-2.0, 0.0]])
+        #self.p = np.array([[0.0, 0.0], [1.0, 0.0], [-2.0, 0.0]])
         #self.p = (self.bounds[1] - self.bounds[0]) * np.random.rand(self.n_agents, 2) + self.bounds[0]
+        randon_translation = 0.3 * (self.bounds[1] - self.bounds[0]) * (2 * np.random.rand(1, 2) - 1)
+
+        self.p = np.copy(self.formation_ref) + randon_translation
         self.vel = np.zeros_like(self.p)
+
+        self.leader_goal = self.p[0, :]
 
         self.iter = 0
 
@@ -163,8 +169,11 @@ class TurbulentFormationEnv(gym.Env):
         # Get the total pressure
         P_t = self._get_pressure(v_wr)
 
+        # computes the squared wind magnitude
+        w_wr_mag = (v_wr ** 2).sum(axis=-1, keepdims=True)
+
         # Observations are a flatten version of the state matrix
-        observation = np.concatenate([self.p, self.vel, v_wr, P_t], axis=1).reshape(-1)
+        observation = np.concatenate([self.p, self.vel, v_wr, P_t, w_wr_mag, np.zeros([self.n_agents, 2*self.action_dim])], axis=1).reshape(-1)
 
         return observation
 
@@ -187,11 +196,12 @@ class TurbulentFormationEnv(gym.Env):
         self.last_action = np.copy(action)
 
         # propagate goal point
-        if self.iter > 100:
-            leader_vel = 0.2 * self.K_p * (self.final_goal - self.leader_goal)
-            self.leader_goal += self.dt * leader_vel
-        else:
-            leader_vel = np.zeros_like(self.leader_goal)
+        #if self.iter > 0:
+        #    leader_vel = 0.2 * self.K_p * (self.final_goal - self.leader_goal)
+        #    self.leader_goal += self.dt * leader_vel
+        #else:
+        #    leader_vel = np.zeros_like(self.leader_goal)
+        leader_vel = np.zeros_like(self.leader_goal)
 
         acc = np.zeros((self.n_agents, 2))
 
@@ -203,13 +213,18 @@ class TurbulentFormationEnv(gym.Env):
             acc[0, :] += action[0, :]
 
         for i in range(1, self.n_agents):
-            for j in self.G.neighbors(i):
-                # Applies the formation control action
-                acc[i, :] += - self.K_p * ((self.p[i, :] - self.p[j, :]) + (self.formation_ref[i, :] - self.formation_ref[j, :])) - self.K_d * (self.vel[i, :] - self.vel[j, :])
+            if self.config.formation_params.formation_contro_type == 'simple':
+                p_d = self.leader_goal + self.formation_ref[i, :]
+                v_d = [0, 0]
+                acc[i, :] = self.K_p * (p_d - self.p[i, :]) + self.K_d * (v_d - self.vel[i, :])
+            elif self.config.formation_params.formation_contro_type == 'magnus':
+                for j in self.G.neighbors(i):
+                    # Applies the formation control action
+                    acc[i, :] += - self.K_p * ((self.p[i, :] - self.p[j, :]) + (self.formation_ref[i, :] - self.formation_ref[j, :])) - self.K_d * (self.vel[i, :] - self.vel[j, :])
 
-                # Applies the action from the RL control
-                if self.config.use_turbulence_control:
-                    acc[i, :] += action[i, :]
+            # Applies the action from the RL control
+            if self.config.use_turbulence_control:
+                acc[i, :] += action[i, :]
 
         # Get the wind velocity at the query points
         if self.config.turbulence_model is not None:
@@ -223,37 +238,54 @@ class TurbulentFormationEnv(gym.Env):
         #self._simulate(acc)
 
         # simulate one time steps of the robots dynamics
-        self._simulate_second_order(acc, v_wr)
+        self.p_prev, self.vel_prev = np.copy(self.p), np.copy(self.vel)
+        self.p, self.vel = self._simulate_second_order(self.p_prev, self.vel_prev, self.dt, acc, v_wr)
+
+        # Simulate dynamics assuming no wind
+        p_pred, vel_pred = self._simulate_second_order(self.p_prev, self.vel_prev, self.dt, acc)
 
         P_d = self._get_pressure(v_wr)
 
-        # Observations are a flatten version of the state matrix
-        observation = np.concatenate([self.p, self.vel, v_wr, P_d], axis=1).reshape(-1)
-        #observation = self.p.reshape(-1)
+        w_wr_mag = (v_wr ** 2).sum(axis=-1, keepdims=True)
 
-        reward = 0.01 * self.compute_reward()
+        S_error = self.compute_state_error(self.p, self.vel, p_pred, vel_pred)
+        reward = -0.1 * np.linalg.norm(S_error, axis=-1).sum()
+
+        # Observations are a flatten version of the state matrix
+        observation = np.concatenate([self.p, self.vel, v_wr, P_d, w_wr_mag, S_error], axis=1).reshape(-1)
+        # observation = self.p.reshape(-1)
 
         # check if any robot is out of the working space. If it is the case creates a big negative reward
         bounds_cond = (self.p[:, 0] < self.bounds[0]) | (self.p[:, 0] > self.bounds[1]) | (
                     self.p[:, 1] < self.bounds[2]) | (self.p[:, 1] > self.bounds[3])
-        if np.any(bounds_cond):
-            reward += -100.0
 
         self.iter += 1
-        done = (self.iter >= self._max_episode_steps)
+        if np.any(bounds_cond):
+            reward += -10.0
+            done = True
+        elif self.iter >= self._max_episode_steps:
+            done = True
+        else:
+            done = False
 
         return observation, reward, done, {}
 
-    def _simulate_second_order(self, action, v_wr):
-        # TODO: Simplified to first order dynamics!!!
-        wind_acceleration = self.wind_acceleration(v_wr)
-        for i in range(self.n_agents):
-            #self.vel[i, :] = action[i, :] + velocity_disturbance[i, :]
-            self.p[i, :] += self.dt * self.vel[i, :]
-            self.vel[i, :] += self.dt * (action[i, :] + wind_acceleration[i, :])
-            #self.vel[i, :] += self.dt * (wind_acceleration[i, :])
-            #self.vel[i, :] += self.dt * (action[i, :])
+    def _simulate_second_order(self, p, vel, dt, action, v_wr=None):
 
+        # Compute the wind's drag acceleration
+        if v_wr is not None:
+            wind_acceleration = self.wind_acceleration(v_wr)
+        else:
+            wind_acceleration = np.zeros_like(vel)
+
+        p_next = np.copy(p)
+        vel_next = np.copy(vel)
+        n = 10
+        for i in range(n):
+            p_next += dt/n * vel_next
+            vel_next += dt/n * (action + wind_acceleration) # TODO: compute the wind_acceleration at t + i*dt/n
+
+        return p_next, vel_next
 
     def _simulate(self, action):
         # TODO: Simplified to first order dynamics!!!
@@ -316,7 +348,7 @@ class TurbulentFormationEnv(gym.Env):
 
         return v
 
-    def compute_reward(self):
+    def compute_formation_reward(self):
 
         reward = 0
         for i in range(self.n_agents):
@@ -327,6 +359,15 @@ class TurbulentFormationEnv(gym.Env):
         # TODO: Discuss if this operation, I think this error can be +/- and we need to maximaze the reward
         # that sign oscillation can be problematic
         return -np.abs(reward)
+
+    def compute_state_error(self, p_r, vel_r, p_p, vel_p):
+        # Robot state in the real world
+        S_r = np.concatenate([p_r, vel_r], axis=1)
+        # Robot state assuming no wind
+        S_p = np.concatenate([p_p, vel_p], axis=1)
+
+        S_error = S_r - S_p
+        return S_error
 
     def render(self, mode='rgb_array'):
 
@@ -345,7 +386,7 @@ class TurbulentFormationEnv(gym.Env):
         # Computes the plot title text
         title = ''
         for i in range(self.last_action.shape[0]):
-            title = f'{title} | Act. Node {i}=[{self.last_action[i, 0]:.2f}, {self.last_action[i, 1]:.2f}]'
+            title = f'{title} | Act. Node {i}=[{self.last_action[i, 0]:.3f}, {self.last_action[i, 1]:.3f}]'
 
         if self.fig is None:
             plt.ion()
@@ -409,3 +450,51 @@ class TurbulentFormationEnv(gym.Env):
             image_from_plot = image_from_plot.reshape(self.fig.canvas.get_width_height()[::-1] + (3,))
 
             return image_from_plot
+
+    def get_formation_conf(self, formation):
+        if formation == 0:
+            pass
+
+    def set_formation_conf(self):
+        self.G = nx.Graph()
+        self.G.add_nodes_from(range(self.n_agents))
+        if self.config.formation_params.formation_type == 0:  # small triangle
+            self.formation_ref = np.array([[0.0, 0.0], [1.0, 0.0], [1.0 / np.sqrt(2), 1.0 / np.sqrt(2)]])
+            # specify the formation graph
+            self.G.add_edges_from([(0, 1), (1, 2), (2, 0)])
+        elif self.config.formation_params.formation_type == 1:    # triangle
+            self.G.add_edges_from(
+                [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (0, 6), (1, 7), (2, 8), (3, 9), (4, 10), (6, 7), (7, 8),
+                 (8, 9), (9, 10), (11, 6), (12, 7), (13, 8), (14, 9), (11, 12), (12, 13), (13, 14), (15, 11), (16, 12),
+                 (17, 13), (15, 16), (16, 17), (18, 15), (19, 16), (18, 19), (20, 18)])
+            self.formation_ref = np.array(
+                [[0.0, 0.0], [0.0, 1.0], [0.0, 2.0], [0.0, 3.0], [0.0, 4], [0.0, 5.0], [1, 0], [1, 1], [1, 2], [1, 3],
+                 [1, 4], [2, 0], [2, 1], [2, 2], [2, 3], [3, 0], [3, 1], [3, 2], [4, 0], [4, 1], [5, 0]]) * 1.5
+        elif self.config.formation_params.formation_type == 2:    # platoon
+            self.G.add_edges_from(
+                [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7), (7, 8), (8, 9), (9, 10), (10, 11), (11, 12),
+                 (12, 13), (13, 14), (14, 15), (15, 16), (16, 17), (17, 18), (18, 19), (19, 20)])
+            self.formation_ref = np.array(
+                [[0.0, 0.0], [0.5, 0.5], [1.0, 1.0], [1.5, 1.5], [2, 2], [2.5, 2.5], [3, 3], [3.5, 3.5], [4, 4],
+                 [4.5, 4.5], [5, 5], [5.5, 5.5], [6, 6], [6.5, 6.5], [7, 7], [7.5, 7.5], [8, 8], [8.5, 8.5], [9, 9],
+                 [9.5, 9.5], [10, 10]])
+        else:
+            raise ValueError(f'Invalid formation type {self.config.formation_params.formation_type}. Tyr [0-> "small triangle, "1 -> "Triangle", 2 -> "Platoon"].')
+
+    def _plot_episode(self):
+        # print(self.error[0:20,0:3],'  ',p)
+        plt.figure(1)
+
+        for i in range(0, self.n_agents):
+            plt.plot(range(0, self._max_episode_steps), self.error[0:self._max_episode_steps, i], label='Robot ' + str(i))
+        plt.legend(loc='upper right', prop={'size': 6})
+        plt.grid()
+        plt.savefig('saved_figure_total.png')
+        plt.clf()
+        plt.figure(2)
+        for i in range(0, self.n_agents):
+            plt.plot(range(50, self._max_episode_steps), self.error[50:self._max_episode_steps, i], label='Robot ' + str(i))
+        plt.legend(loc='upper right', prop={'size': 6})
+        plt.grid()
+        plt.savefig('saved_figure_50_MaxSteps.png')
+        plt.clf()

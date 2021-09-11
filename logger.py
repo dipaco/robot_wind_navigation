@@ -29,7 +29,8 @@ AGENT_TRAIN_FORMAT = {
         ('critic_loss', 'CLOSS', 'float'),
         ('alpha_loss', 'TLOSS', 'float'),
         ('alpha_value', 'TVAL', 'float'),
-        ('actor_entropy', 'AENT', 'float')
+        ('actor_entropy', 'AENT', 'float'),
+        ('actor_ns_loss', 'NSLOSS', 'float')
     ]
 }
 

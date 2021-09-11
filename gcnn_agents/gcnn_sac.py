@@ -1,5 +1,6 @@
 import torch
 import torch.nn.functional as F
+import utils
 from agent.sac import SACAgent
 
 
@@ -9,18 +10,33 @@ class GCNNSACAgent(SACAgent):
                  actor_cfg, discount, init_temperature, alpha_lr, alpha_betas,
                  actor_lr, actor_betas, actor_update_frequency, critic_lr,
                  critic_betas, critic_tau, critic_target_update_frequency,
-                 batch_size, learnable_temperature, num_nodes):
+                 batch_size, learnable_temperature, num_nodes, use_ns_regularization, ns_regularization_weight):
         super().__init__(obs_dim, action_dim, action_range, device, critic_cfg, actor_cfg, discount, init_temperature,
                          alpha_lr, alpha_betas, actor_lr, actor_betas, actor_update_frequency, critic_lr, critic_betas,
                          critic_tau, critic_target_update_frequency, batch_size, learnable_temperature)
 
         self.num_nodes = num_nodes
+        self.use_ns_regularization = use_ns_regularization
+        self.ns_regularization_weight = ns_regularization_weight
+
+    def act(self, obs, sample=False, return_ns_loss=False):
+        obs = torch.FloatTensor(obs).to(self.device)
+        obs = obs.unsqueeze(0)
+        dist, _ = self.actor(obs)
+        action = dist.sample() if sample else dist.mean
+        action = action.clamp(*self.action_range)
+        assert action.ndim == 2 and action.shape[0] == 1
+
+        if return_ns_loss:
+            return utils.to_np(action[0])
+        else:
+            return utils.to_np(action[0])
 
     def update_critic(self, obs, action, reward, next_obs, not_done, logger,
                       step):
         bs = obs.shape[0]
 
-        dist = self.actor(next_obs)
+        dist, ns_loss = self.actor(next_obs)
         next_action = dist.rsample()
         log_prob = dist.log_prob(next_action).view(bs, self.num_nodes, -1).sum(dim=-1)
         target_Q1, target_Q2 = self.critic_target(next_obs, next_action)
@@ -42,17 +58,23 @@ class GCNNSACAgent(SACAgent):
 
     def update_actor_and_alpha(self, obs, logger, step):
         bs = obs.shape[0]
-        dist = self.actor(obs)
+        dist, ns_loss = self.actor(obs)
         action = dist.rsample()
         log_prob = dist.log_prob(action).view(bs, self.num_nodes, -1).sum(dim=-1)
         actor_Q1, actor_Q2 = self.critic(obs, action)
 
         actor_Q = torch.min(actor_Q1, actor_Q2)
-        actor_loss = (self.alpha.detach() * log_prob - actor_Q).mean()
+        if self.use_ns_regularization:
+            actor_loss = (self.alpha.detach() * log_prob - actor_Q).mean() + self.ns_regularization_weight * ns_loss
+        else:
+            actor_loss = (self.alpha.detach() * log_prob - actor_Q).mean()
 
         logger.log('train_actor/loss', actor_loss, step)
         logger.log('train_actor/target_entropy', self.target_entropy, step)
         logger.log('train_actor/entropy', -log_prob.mean(), step)
+
+        if self.use_ns_regularization:
+            logger.log('train_actor/ns_loss', ns_loss, step)
 
         # optimize the actor
         self.actor_optimizer.zero_grad()

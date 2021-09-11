@@ -62,7 +62,7 @@ class SquashedNormal(pyd.transformed_distribution.TransformedDistribution):
 class GCNNDiagGaussianActor(nn.Module):
     """torch.distributions implementation of an diagonal Gaussian policy."""
     def __init__(self, num_nodes, obs_dim, action_dim, hidden_dim, hidden_depth,
-                 log_std_bounds):
+                 log_std_bounds, use_ns_regularization):
         super().__init__()
 
         self.num_nodes = num_nodes
@@ -71,6 +71,7 @@ class GCNNDiagGaussianActor(nn.Module):
         self.hidden_depth = hidden_depth
         self.obs_dim = obs_dim
         self.action_dim = action_dim
+        self.use_ns_regularization = use_ns_regularization
 
         assert self.obs_dim % self.num_nodes == 0, f'The number of robots (nodes={self.num_nodes})' \
                                               f' do not divide the observation space size ({self.obs_dim}.)'
@@ -85,8 +86,17 @@ class GCNNDiagGaussianActor(nn.Module):
 
         # create all the convolutional layers
         gnn_obs_dim = self.obs_dim // self.num_nodes
-        gnn_action_dim = self.action_dim // self.num_nodes
-        self.trunk = create_gcnn(gnn_obs_dim, 2*gnn_action_dim, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU)
+        self.gnn_action_dim = self.action_dim // self.num_nodes
+
+        if self.use_ns_regularization:
+            num_dynamic_variables = 4   # p_x_robot, p_y_robot, v_x_robot, v_y_robot
+            self.num_ns_input = gnn_obs_dim - num_dynamic_variables
+            self.num_ns_output = (self.gnn_action_dim * (self.gnn_action_dim + 1)) // 2
+
+            self.ns_branch = create_gcnn(self.num_ns_input, self.num_ns_output, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU)
+            self.trunk = create_gcnn(gnn_obs_dim + self.num_ns_output, 2*self.gnn_action_dim, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU)
+        else:
+            self.trunk = create_gcnn(gnn_obs_dim, 2*self.gnn_action_dim, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU)
 
         self.outputs = dict()
         #self.apply(utils.weight_init)
@@ -98,6 +108,19 @@ class GCNNDiagGaussianActor(nn.Module):
 
         # FIXME: This can be definitely done better using the Batch Class from torch_geometric
         edges = to_undirected(torch.tensor([e for e in self.G.edges], device=input_features.device).long().T)
+
+        if self.use_ns_regularization:
+
+            # TODO: What we need is w_bar, we need to fix this
+            w = input_features[:, :, -self.num_ns_input:-self.num_ns_input+self.gnn_action_dim]
+            P = input_features[:, :, -1:]
+
+            turb_energy = self.ns_branch(input_features[:, :, -self.num_ns_input:], edges)
+            input_features = torch.cat([input_features, turb_energy], dim=-1)
+
+            ns_loss = self._get_ns_loss(w, P, turb_energy, edges)
+        else:
+            ns_loss = None
 
         mu, log_std = self.trunk(input_features, edges).chunk(2, dim=-1)
 
@@ -116,7 +139,7 @@ class GCNNDiagGaussianActor(nn.Module):
         self.outputs['std'] = std
 
         dist = SquashedNormal(mu, std)
-        return dist
+        return dist, ns_loss
 
     def log(self, logger, step):
         for k, v in self.outputs.items():
@@ -125,3 +148,44 @@ class GCNNDiagGaussianActor(nn.Module):
         for i, m in enumerate(self.trunk.nns):
             if type(m) in [gnn.GCNConv]:
                 logger.log_param(f'train_actor/fc{i}', m, step)
+
+    def _spatial_derivative(self, y, edges):
+        return y
+
+    def _get_symetric_matrix_from_unique_values(self, vals):
+
+        d = (-1 + math.sqrt(1 + 4*2*vals.shape[-1])) / 2
+        assert d.is_integer(), f"We can't create a symmetric matrix out of {vals.shape[-1]} unique values."
+        d = int(d)
+
+        bs, n = vals.shape[:2]
+        M = torch.zeros(bs, n, d, d, device=vals.device)
+        i, j = torch.triu_indices(d, d)
+        M[:, :, i, j] = vals
+        M = M.permute(0, 1, 3, 2)
+        M[:, :, i, j] = vals
+
+        return M
+
+    def _get_ns_loss(self, u_bar, P, u_prime_bar, edges):
+
+        device = u_prime_bar.device
+        d = u_bar.shape[-1]
+        rho = 1.184
+        u_prime_bar_matrix = self._get_symetric_matrix_from_unique_values(u_prime_bar)
+        P_matrix = torch.eye(d, device=device)[None, None, ...] * P[..., None]
+        u_bar_matrix = u_bar[..., None, :].repeat(1, 1, d, 1)
+
+        # TODO: Fix derivative computation
+        #import pdb
+        #pdb.set_trace()
+
+        dxj_u_bar_matrix = self._spatial_derivative(u_bar_matrix, edges)
+        dxj_forces_matrix = self._spatial_derivative(-(P_matrix + rho * u_prime_bar_matrix), edges)
+
+        rans_loss = (rho * u_bar_matrix * dxj_u_bar_matrix - dxj_forces_matrix).abs().mean(dim=[0, 1]).sum()
+
+        #import pdb
+        #pdb.set_trace()
+
+        return rans_loss

@@ -94,7 +94,7 @@ class Workspace(object):
                                           self.device)
 
         self.video_recorder = VideoRecorder(
-            self.work_dir if cfg.save_video else None)
+            self.work_dir if cfg.save_video else None, fps=15)
         self.step = 0
 
     def evaluate(self):
