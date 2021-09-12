@@ -323,6 +323,8 @@ class TurbulentFormationEnv(gym.Env):
             ], axis=2).sum(axis=0)
         elif self.config.turbulence_model == 'NS':
 
+            device = torch.device('cuda')
+
             current_t = self.iter * self.dt
             res_x, res_y = self.wind_sim_dict[self.selected_sim]['v'].shape[1:3]
             all_t = self.wind_sim_dict[self.selected_sim]['t']
@@ -336,9 +338,9 @@ class TurbulentFormationEnv(gym.Env):
             idx_left = max(idx[0] - 1, 0)
             idx_right = idx_left + 1
 
-            Z = torch.tensor(self.wind_sim_dict[self.selected_sim]['v'][idx_left:idx_right + 1, ...])
-            scaled_query_points = 2*torch.tensor((query_points - self.bounds[0]) / (self.bounds[1] - self.bounds[0])) - 1
-            padded_current_time = 2*((current_t * torch.ones((query_points.shape[0], 1)) - all_t[idx_left]) / (all_t[idx_right] - all_t[idx_left])) - 1.0
+            Z = torch.tensor(self.wind_sim_dict[self.selected_sim]['v'][idx_left:idx_right + 1, ...], device=device)
+            scaled_query_points = 2*torch.tensor((query_points - self.bounds[0]) / (self.bounds[1] - self.bounds[0]), device=device) - 1
+            padded_current_time = 2*((current_t * torch.ones((query_points.shape[0], 1), device=device) - all_t[idx_left]) / (all_t[idx_right] - all_t[idx_left])) - 1.0
 
             v = grid_sample(
                 Z[None, ...].permute(0, 4, 1, 2, 3),
@@ -347,7 +349,7 @@ class TurbulentFormationEnv(gym.Env):
                 mode='bilinear',
                 padding_mode='border',
                 align_corners=True,
-            ).view(2, -1).T.numpy()
+            ).view(2, -1).cpu().T.numpy()
         elif self.config.turbulence_model == 'constant':
             base_wind = np.array([[15.0, 0.0]])
             v = base_wind * np.ones_like(query_points)
