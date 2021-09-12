@@ -99,6 +99,8 @@ class Workspace(object):
 
     def evaluate(self):
         average_episode_reward = 0
+        results_folder = os.path.join(self.work_dir, 'results')
+        os.makedirs(results_folder, exist_ok=True)
         for episode in range(self.cfg.num_eval_episodes):
             obs = self.env.reset()
             self.agent.reset()
@@ -118,6 +120,11 @@ class Workspace(object):
             # Only records the first eval episode
             if episode == 0:
                 self.video_recorder.save(f'{self.step}.mp4')
+
+                # save formation error data and plots
+                self.env.plot_episode(results_folder=results_folder, step=self.step)
+                np.savez(os.path.join(results_folder, f'step_{self.step}_formation_error.npz'), formation_error=self.env.get_formation_error())
+
         average_episode_reward /= self.cfg.num_eval_episodes
         self.logger.log('eval/episode_reward', average_episode_reward,
                         self.step)
