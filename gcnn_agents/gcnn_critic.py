@@ -1,5 +1,7 @@
 import numpy as np
 import torch
+import os
+import sys
 import networkx as nx
 from torch import nn
 from .agent_utils import create_gcnn
@@ -9,10 +11,14 @@ import torch.nn.functional as F
 
 import utils
 
+__BASE_FOLDER__ = os.path.dirname(os.path.abspath(__file__))
+dist_package_folder = os.path.join(__BASE_FOLDER__, '../gcnn_agents/')
+sys.path.append(dist_package_folder)
+from agent_utils import get_formation_conf
 
 class GCNNDoubleQCritic(nn.Module):
     """Critic network, employes double Q-learning."""
-    def __init__(self,num_nodes, obs_dim, action_dim, hidden_dim, hidden_depth):
+    def __init__(self, num_nodes, obs_dim, action_dim, hidden_dim, hidden_depth, conv_type, input_batch_norm, formation_type):
         super().__init__()
 
         self.num_nodes = num_nodes
@@ -20,28 +26,39 @@ class GCNNDoubleQCritic(nn.Module):
         self.hidden_depth = hidden_depth
         self.obs_dim = obs_dim
         self.action_dim = action_dim
+        self.conv_type = conv_type
+        self.input_batch_norm = input_batch_norm
+        self.formation_type = formation_type
 
         assert self.obs_dim % self.num_nodes == 0, f'The number of robots (nodes={self.num_nodes})' \
                                                    f' do not divide the observation space size ({self.obs_dim}.)'
         assert self.action_dim % self.num_nodes == 0, f'The number of robots (nodes={self.num_nodes})' \
                                                       f' do not divide the action space size ({self.action_dim}.)'
 
+        if self.input_batch_norm:
+            self.input_norm_layer_obs = nn.BatchNorm1d(self.obs_dim, track_running_stats=True)
+            self.input_norm_layer_action = nn.BatchNorm1d(self.action_dim, track_running_stats=True)
+
         # create all the convolutional layers
         gnn_obs_dim = self.obs_dim // self.num_nodes
         gnn_action_dim = self.action_dim // self.num_nodes
-        self.Q1 = create_gcnn(gnn_obs_dim + gnn_action_dim, 1, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU)
-        self.Q2 = create_gcnn(gnn_obs_dim + gnn_action_dim, 1, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU)
+        self.Q1 = create_gcnn(gnn_obs_dim + gnn_action_dim, 1, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type)
+        self.Q2 = create_gcnn(gnn_obs_dim + gnn_action_dim, 1, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type)
 
-        # specify the formation graph
-        # TODO: this must come from configuration parameters
-        self.G = nx.Graph()
-        self.G.add_nodes_from(range(self.num_nodes))
-        self.G.add_edges_from([(0, 1), (1, 2), (2, 0)])
+        self.G = None
+        _, self.G = get_formation_conf(self.formation_type)
 
         self.outputs = dict()
         #self.apply(utils.weight_init)
 
     def forward(self, obs, action):
+
+        if self.input_batch_norm:
+            # Normalize the input features
+            obs = self.input_norm_layer_obs(obs)
+
+            # Normalize the input features
+            action = self.input_norm_layer_action(action)
 
         bs = obs.shape[0]
 

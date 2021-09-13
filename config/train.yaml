@@ -25,9 +25,15 @@ save_video: true
 
 seed: 1
 
+# GNN parameters
+gnn_parameters:
+    conv_type: node # [node, edge]
+    input_batch_norm: false
+
 # turbulence options
+only_do_turb_control: false
 use_turbulence_control: true
-turbulence_model: NS    #[NS, null]
+turbulence_model: constant    #[NS, null, constant, circular]
 sim_dim: 2
 turbulence_base_folder: /mnt/beegfs/data/diego/turbulence/
 use_ns_regularization: false
@@ -37,7 +43,7 @@ ns_regularization_weight: 1.0
 formation_params:
     formation_contro_type: simple   # [simple, magnus]
     num_nodes: 3
-    formation_type: 0   #   [0-> "small triangle, nodes=3", 1 -> "Triangle, nodes=21", 2 -> "Platoon"]
+    formation_type: 0   #   [0-> "small triangle, nodes=3", 1 -> "Triangle, nodes=21", 2 -> "Platoon", 3 -> "grid 3x3", 4 -> "grid 4x4"]
 
 # hydra configuration
 hydra:

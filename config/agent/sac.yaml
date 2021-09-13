@@ -29,6 +29,9 @@ double_q_critic:
   class: gcnn_agents.GCNNDoubleQCritic
   params:
     num_nodes: ${formation_params.num_nodes}
+    formation_type: ${formation_params.formation_type}
+    conv_type: ${gnn_parameters.conv_type}
+    input_batch_norm: ${gnn_parameters.input_batch_norm}
     obs_dim: ${agent.params.obs_dim}
     action_dim: ${agent.params.action_dim}
     hidden_dim: 256
@@ -38,7 +41,10 @@ diag_gaussian_actor:
   class: gcnn_agents.GCNNDiagGaussianActor
   params:
     num_nodes: ${formation_params.num_nodes}
+    formation_type: ${formation_params.formation_type}
     use_ns_regularization: ${use_ns_regularization}
+    conv_type: ${gnn_parameters.conv_type}
+    input_batch_norm: ${gnn_parameters.input_batch_norm}
     obs_dim: ${agent.params.obs_dim}
     action_dim: ${agent.params.action_dim}
     hidden_depth: 2

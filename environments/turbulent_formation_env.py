@@ -1,5 +1,5 @@
 import os
-
+import sys
 import gym
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,6 +11,11 @@ from gym.spaces import Dict, Discrete, Box, Tuple
 from scipy.interpolate import interp2d
 from scipy.interpolate import griddata
 from torch.nn.functional import grid_sample
+
+__BASE_FOLDER__ = os.path.dirname(os.path.abspath(__file__))
+dist_package_folder = os.path.join(__BASE_FOLDER__, '../gcnn_agents/')
+sys.path.append(dist_package_folder)
+from agent_utils import get_formation_conf
 
 
 class TurbulentFormationEnv(gym.Env):
@@ -26,7 +31,7 @@ class TurbulentFormationEnv(gym.Env):
         self.rho = 1.184
         self.P_s = 101325   # 1 atm in Pascal units
         # mass in Kg
-        self.m = 0.2
+        self.m = 0.3
         # reference area of a sphere or r=10 cm
         self.robot_radius = 0.05
         self.area = 4 * np.pi * (self.robot_radius ** 2)
@@ -36,18 +41,20 @@ class TurbulentFormationEnv(gym.Env):
         # env shape   reference formation points
         self.bounds = np.array([-5.0, 5.0, -5.0, 5.0])  # xmin, xmax, ymin, ymax
 
-        self.MAX_ROBOT_ACCELERATION = 15
+        self.MAX_ROBOT_ACCELERATION = 10
 
         # Team parameters and initializations
         self.n_agents = self.config.formation_params.num_nodes
 
         # state dimension
-        self.state_dim = 10
+        self.state_dim = 8
 
         # action dim
         self.action_dim = 2
 
-        self.set_formation_conf()
+        self.G = None
+        self.formation_ref = None
+        self.formation_ref, self.G = get_formation_conf(self.config.formation_params.formation_type)
         randon_translation = 0.3 * (self.bounds[1] - self.bounds[0]) * (2*np.random.rand(1, 2) - 1)
         self.p = np.copy(self.formation_ref) + randon_translation
 
@@ -61,8 +68,8 @@ class TurbulentFormationEnv(gym.Env):
         self.final_goal = np.array([0.0, 0.0])
 
         # proportional gain for goal controller
-        self.K_p = 1.0*5
-        self.K_d = 0.5*5
+        self.K_p = 2.5  # 1.0*5
+        self.K_d = 1.25 # 0.5*5
 
         # simulation time step and timing parameter
         self.iter = 0
@@ -88,11 +95,9 @@ class TurbulentFormationEnv(gym.Env):
             self.all_sims = [d for d in os.listdir(self.config.turbulence_base_folder) if
                              os.path.isdir(os.path.join(self.config.turbulence_base_folder, d))]
             assert len(self.all_sims) > 0, f"There are no valid simulation in {self.config.turbulence_base_folder}"
-        elif self.config.turbulence_model == 'constant':
-            pass
 
         # setup the action and observation space
-        self.action_space = Box(-self.MAX_ROBOT_ACCELERATION, self.MAX_ROBOT_ACCELERATION, (self.n_agents * self.action_dim,))
+        self.action_space = Box(-1.0, 1.0, (self.n_agents * self.action_dim,))
         self.observation_space = Box(self.bounds[0], self.bounds[1], (self.n_agents * self.state_dim,))
 
         #self.last_action = None
@@ -178,7 +183,7 @@ class TurbulentFormationEnv(gym.Env):
         w_wr_mag = (v_wr ** 2).sum(axis=-1, keepdims=True)
 
         # Observations are a flatten version of the state matrix
-        observation = np.concatenate([self.p, self.vel, v_wr, P_t, w_wr_mag, np.zeros([self.n_agents, self.action_dim])], axis=1).reshape(-1)
+        observation = np.concatenate([self.vel, v_wr, P_t, w_wr_mag, np.zeros([self.n_agents, self.action_dim])], axis=1).reshape(-1)
 
         return observation
 
@@ -191,7 +196,6 @@ class TurbulentFormationEnv(gym.Env):
         return P_d[:, None]
 
     def step(self, action):
-
         #action = np.zeros_like(action)
         #print(action)
 
@@ -250,12 +254,12 @@ class TurbulentFormationEnv(gym.Env):
         w_wr_mag = (v_wr ** 2).sum(axis=-1, keepdims=True)
 
         S_error = self.compute_state_error(self.p, self.vel, p_pred, vel_pred)
-        reward = -0.1 * np.linalg.norm(S_error, axis=-1).sum()
+        reward = -0.01 * np.linalg.norm(S_error, axis=-1).sum()
 
         self.formation_error[:, self.iter] = self.compute_formation_error()
 
         # Observations are a flatten version of the state matrix
-        observation = np.concatenate([self.p, self.vel, v_wr, P_d, w_wr_mag, S_error], axis=1).reshape(-1)
+        observation = np.concatenate([self.vel, v_wr, P_d, w_wr_mag, S_error], axis=1).reshape(-1)
         # observation = self.p.reshape(-1)
 
         # check if any robot is out of the working space. If it is the case creates a big negative reward
@@ -264,7 +268,7 @@ class TurbulentFormationEnv(gym.Env):
 
         self.iter += 1
         if np.any(bounds_cond):
-            reward += -10.0
+            reward += -100.0
             done = True
         elif self.iter >= self._max_episode_steps:
             done = True
@@ -351,8 +355,12 @@ class TurbulentFormationEnv(gym.Env):
                 align_corners=True,
             ).view(2, -1).cpu().T.numpy()
         elif self.config.turbulence_model == 'constant':
-            base_wind = np.array([[15.0, 0.0]])
+            base_wind = np.array([[10.0, 0.0]])
             v = base_wind * np.ones_like(query_points)
+        elif self.config.turbulence_model == 'circular':
+            theta = np.arctan2(query_points[:, 1], query_points[:, 0])
+            v = 10 * np.concatenate([-np.sin(theta)[:, None], np.cos(theta)[:, None]], axis=-1)
+
         else:
             raise ValueError(f'Invalid turbulence model {self.config.turbulence_model}. Try [NS, random, constant].')
 
@@ -397,7 +405,7 @@ class TurbulentFormationEnv(gym.Env):
             vf_res = 30
             x, y = np.meshgrid(
                 np.linspace(self.bounds[0], self.bounds[1], vf_res),
-                np.linspace(self.bounds[0], self.bounds[-1], vf_res)
+                np.linspace(self.bounds[2], self.bounds[3], vf_res)
             )
             x = x.reshape(-1)
             y = y.reshape(-1)
@@ -499,6 +507,10 @@ class TurbulentFormationEnv(gym.Env):
                 [[0.0, 0.0], [0.5, 0.5], [1.0, 1.0], [1.5, 1.5], [2, 2], [2.5, 2.5], [3, 3], [3.5, 3.5], [4, 4],
                  [4.5, 4.5], [5, 5], [5.5, 5.5], [6, 6], [6.5, 6.5], [7, 7], [7.5, 7.5], [8, 8], [8.5, 8.5], [9, 9],
                  [9.5, 9.5], [10, 10]])
+        elif self.config.formation_params.formation_type == 3:  # grid 3x3
+            pass
+        elif self.config.formation_params.formation_type == 4:  # grid 4x4
+            pass
         else:
             raise ValueError(f'Invalid formation type {self.config.formation_params.formation_type}. Tyr [0-> "small triangle, "1 -> "Triangle", 2 -> "Platoon"].')
 
