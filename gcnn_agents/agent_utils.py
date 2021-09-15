@@ -6,67 +6,80 @@ import networkx as nx
 from torch_geometric import nn as gnn
 
 
-def create_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=nn.ReLU, norm=False, conv_type='node'):
+def create_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=nn.ReLU, norm=False, conv_type='node', output_layer=True):
     if conv_type == 'node':
-        return _create_node_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity, norm)
+        return _create_node_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity, norm, output_layer)
     if conv_type == 'edge':
-        return _create_edge_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity, norm)
+        return _create_edge_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity, norm, output_layer)
     else:
         raise ValueError(f'Wrong Graph Convolution type: {conv_type}. Try [node, edge].')
 
 
-def _create_node_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=nn.ReLU, norm=False):
+def _create_node_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=nn.ReLU, norm=True, output_layer=True):
     all_layers = []
-    for i in range(hidden_depth + 2):
+    num_layers = hidden_depth + 2 if output_layer else hidden_depth + 1
+    for i in range(num_layers):
         if i == 0:
             all_layers.append(
-                (gnn.GraphConv(in_channels=in_dim, out_channels=hidden_dim, bias=False, node_dim=1), 'x, edge_index -> x')
+                (gnn.GraphConv(in_channels=in_dim, out_channels=hidden_dim, bias=False), 'x, edge_index -> x')
             )
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
             all_layers.append(non_linearity(inplace=True))
-        elif i == hidden_depth + 1:
+        elif output_layer and i == num_layers - 1:
             all_layers.append(
-                (gnn.GraphConv(in_channels=hidden_dim, out_channels=out_dim, bias=False, node_dim=1),
+                (gnn.GraphConv(in_channels=hidden_dim, out_channels=out_dim, bias=False),
                  'x, edge_index -> x')
             )
+            if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
         else:
             all_layers.append(
-                (gnn.GraphConv(in_channels=hidden_dim, out_channels=hidden_dim, bias=False, node_dim=1), 'x, edge_index -> x')
+                (gnn.GraphConv(in_channels=hidden_dim, out_channels=hidden_dim, bias=False), 'x, edge_index -> x')
             )
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
             all_layers.append(non_linearity(inplace=True))
-
 
     trunk = gnn.Sequential('x, edge_index', all_layers)
 
     return trunk
 
 
-def _create_edge_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=nn.ReLU, norm=False):
+def _create_edge_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=nn.ReLU, norm=False, output_layer=True):
     all_layers = []
-    for i in range(hidden_depth + 2):
+
+    num_layers = hidden_depth + 2 if output_layer else hidden_depth + 1
+    for i in range(num_layers):
         if i == 0:
             all_layers.append(
-                (gnn.EdgeConv(nn.Linear(in_features=2*in_dim, out_features=hidden_dim, bias=False), aggr='add', node_dim=1), 'x, edge_index -> x')
+                (gnn.EdgeConv(nn.Linear(in_features=2*in_dim, out_features=hidden_dim, bias=False), aggr='add'), 'x, edge_index -> x')
             )
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
             all_layers.append(non_linearity(inplace=True))
-        elif i == hidden_depth + 1:
+        elif output_layer and i == num_layers - 1:
             all_layers.append(
-                (gnn.EdgeConv(nn.Linear(in_features=2*hidden_dim, out_features=out_dim, bias=False), aggr='add', node_dim=1),
+                (gnn.EdgeConv(nn.Linear(in_features=2*hidden_dim, out_features=out_dim, bias=False), aggr='add'),
                  'x, edge_index -> x')
             )
+            if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
         else:
             all_layers.append(
-                (gnn.EdgeConv(nn.Linear(in_features=2*hidden_dim, out_features=hidden_dim, bias=False), aggr='add', node_dim=1), 'x, edge_index -> x')
+                (gnn.EdgeConv(nn.Linear(in_features=2*hidden_dim, out_features=hidden_dim, bias=False), aggr='add'), 'x, edge_index -> x')
             )
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
             all_layers.append(non_linearity(inplace=True))
-
 
     trunk = gnn.Sequential('x, edge_index', all_layers)
 
     return trunk
+
+
+def create_mlp(in_dim, out_dim):
+    mlp = nn.Sequential(
+        nn.Linear(in_dim, in_dim // 4), nn.BatchNorm1d(in_dim // 4), nn.ReLU(inplace=True),
+        nn.Linear(in_dim // 4, in_dim // 16), nn.BatchNorm1d(in_dim // 16), nn.ReLU(inplace=True),
+        nn.Linear(in_dim // 16, out_dim)
+    )
+
+    return mlp
 
 
 def get_formation_conf(formation_type):
@@ -114,3 +127,26 @@ def get_formation_conf(formation_type):
         raise ValueError(f'Invalid formation type {self.config.formation_params.formation_type}. Tyr [0-> "small triangle, "1 -> "Triangle", 2 -> "Platoon"].')
 
     return formation_ref, G
+
+
+def normalize(v, axis=-1):
+    eps = 1e-8
+    norm = np.linalg.norm(v, axis=axis, keepdims=True)
+
+    norm_v = v / (norm + eps)
+
+    idx = np.where(norm == 0.0)[0]
+    norm_v[idx, :] = 0.0
+
+    return norm_v
+
+
+def zero_weight_init(m):
+
+    if isinstance(m, nn.Linear):
+        m.weight.data.fill_(0.0)
+    elif isinstance(m, gnn.GraphConv):
+        m.lin_l.weight.data.fill_(0.0)
+    elif isinstance(m, gnn.EdgeConv):
+        m.nn.weight.data.fill_(0.0)
+

@@ -9,7 +9,7 @@ import networkx as nx
 from torch import distributions as pyd
 from torch_geometric import nn as gnn
 from torch_geometric.utils import to_undirected
-from .agent_utils import create_gcnn
+from .agent_utils import create_gcnn, create_mlp, zero_weight_init
 
 import utils
 
@@ -82,6 +82,7 @@ class GCNNDiagGaussianActor(nn.Module):
         self.conv_type = conv_type
         self.input_batch_norm = input_batch_norm
         self.formation_type = formation_type
+        self.use_output_mlp = False
 
         assert self.obs_dim % self.num_nodes == 0, f'The number of robots (nodes={self.num_nodes})' \
                                               f' do not divide the observation space size ({self.obs_dim}.)'
@@ -106,10 +107,14 @@ class GCNNDiagGaussianActor(nn.Module):
             self.ns_branch = create_gcnn(self.num_ns_input, self.num_ns_output, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type)
             self.trunk = create_gcnn(gnn_obs_dim + self.num_ns_output, 2*self.gnn_action_dim, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type)
         else:
-            self.trunk = create_gcnn(gnn_obs_dim, 2*self.gnn_action_dim, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type)
+            if self.use_output_mlp:
+                self.trunk = create_gcnn(gnn_obs_dim, 2*self.gnn_action_dim, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type, output_layer=False)
+                self.mlp_trunk = create_mlp(self.hidden_dim, 2*self.gnn_action_dim)
+            else:
+                self.trunk = create_gcnn(gnn_obs_dim, 2 * self.gnn_action_dim, self.hidden_dim, self.hidden_depth,non_linearity=nn.ReLU, conv_type=self.conv_type)
 
         self.outputs = dict()
-        #self.apply(utils.weight_init)
+        #self.apply(zero_weight_init)
 
     def forward(self, obs):
 
@@ -118,10 +123,11 @@ class GCNNDiagGaussianActor(nn.Module):
             obs = self.input_norm_layer(obs)
 
         bs = obs.shape[0]
-        input_features = obs.view(bs, self.num_nodes, self.obs_dim // self.num_nodes)
+        input_features = obs.view(bs * self.num_nodes, self.obs_dim // self.num_nodes)
 
         # FIXME: This can be definitely done better using the Batch Class from torch_geometric
         edges = to_undirected(torch.tensor([e for e in self.G.edges], device=input_features.device).long().T)
+        edges = torch.cat([edges + i*self.num_nodes for i in range(bs)], dim=-1)
 
         if self.use_ns_regularization:
 
@@ -136,7 +142,11 @@ class GCNNDiagGaussianActor(nn.Module):
         else:
             ns_loss = None
 
-        mu, log_std = self.trunk(input_features, edges).chunk(2, dim=-1)
+        if self.use_output_mlp:
+            out = self.trunk(input_features, edges)
+            mu, log_std = self.mlp_trunk(out).chunk(2, dim=-1)
+        else:
+            mu, log_std = self.trunk(input_features, edges).chunk(2, dim=-1)
 
         # We can flatten the distribution along the nodes of the graph because the Covariance matrix is diagonal
         mu = mu.contiguous().view(bs, -1)
@@ -191,6 +201,7 @@ class GCNNDiagGaussianActor(nn.Module):
         u_bar_matrix = u_bar[..., None, :].repeat(1, 1, d, 1)
 
         # TODO: Fix derivative computation
+        # https://github.com/ZichaoLong/aTEAM/blob/master/nn/modules/Interpolation.py
         #import pdb
         #pdb.set_trace()
 

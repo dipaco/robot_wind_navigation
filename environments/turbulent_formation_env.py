@@ -15,7 +15,7 @@ from torch.nn.functional import grid_sample
 __BASE_FOLDER__ = os.path.dirname(os.path.abspath(__file__))
 dist_package_folder = os.path.join(__BASE_FOLDER__, '../gcnn_agents/')
 sys.path.append(dist_package_folder)
-from agent_utils import get_formation_conf
+from agent_utils import get_formation_conf, normalize
 
 
 class TurbulentFormationEnv(gym.Env):
@@ -47,7 +47,7 @@ class TurbulentFormationEnv(gym.Env):
         self.n_agents = self.config.formation_params.num_nodes
 
         # state dimension
-        self.state_dim = 8
+        self.state_dim = 10
 
         # action dim
         self.action_dim = 2
@@ -55,16 +55,25 @@ class TurbulentFormationEnv(gym.Env):
         self.G = None
         self.formation_ref = None
         self.formation_ref, self.G = get_formation_conf(self.config.formation_params.formation_type)
-        randon_translation = 0.3 * (self.bounds[1] - self.bounds[0]) * (2*np.random.rand(1, 2) - 1)
-        self.p = np.copy(self.formation_ref) + randon_translation
 
-        #self.p = np.array([[0.0, 0.0], [1.0, 0.0], [-1.0, 0.0]])
-        #self.p = (self.bounds[1] - self.bounds[0]) * np.random.rand(self.n_agents, 2) + self.bounds[0]
+        # initialize robot pose
+        if self.config.formation_params.init_points == 'random':
+            self.p = 0.8 * (self.bounds[1] - self.bounds[0]) * np.random.rand(self.n_agents, 2) + self.bounds[0]
+            self.leader_goal = 0.7 * (self.bounds[1] - self.bounds[0]) * np.random.rand(2) + self.bounds[0]
+        elif self.config.formation_params.init_points == 'in_formation':
+            randon_translation = 0.3 * (self.bounds[1] - self.bounds[0]) * (2 * np.random.rand(1, 2) - 1)
+            self.p = np.copy(self.formation_ref) + randon_translation
+            self.leader_goal = self.p[0, :]
+        else:
+            raise ValueError(f'Wrong point initialization "{self.config.formation_params.init_points}". Try [random, in_formation]')
+
+        # self.p = np.array([[0.0, 0.0], [1.0, 0.0], [-1.0, 0.0]])
+
         self.vel = np.zeros_like(self.p)
 
         # goal location for leader
         #self.leader_goal = np.array([2.0, 2.0])
-        self.leader_goal = self.p[0, :]
+
         self.final_goal = np.array([0.0, 0.0])
 
         # proportional gain for goal controller
@@ -90,6 +99,9 @@ class TurbulentFormationEnv(gym.Env):
         elif self.config.turbulence_model == 'NS':
             self.wind_sim_dict = {}
             self.selected_sim = None
+        elif self.config.turbulence_model == 'constant':
+            self.wind_theta = np.pi * (2*np.random.rand() - 1)
+            self.wind_theta = 0.0
 
             # all_sims = [d for d in map(lambda x: os.path.join(sim_path, x), os.listdir(sim_path)) if os.path.isdir(d)]
             self.all_sims = [d for d in os.listdir(self.config.turbulence_base_folder) if
@@ -146,14 +158,19 @@ class TurbulentFormationEnv(gym.Env):
     def reset(self):
 
         # initialize robot pose
+        if self.config.formation_params.init_points == 'random':
+            self.p = 0.8 * (self.bounds[1] - self.bounds[0]) * np.random.rand(self.n_agents, 2) + self.bounds[0]
+            self.leader_goal = 0.7 * (self.bounds[1] - self.bounds[0]) * np.random.rand(2) + self.bounds[0]
+        elif self.config.formation_params.init_points == 'in_formation':
+            randon_translation = 0.3 * (self.bounds[1] - self.bounds[0]) * (2 * np.random.rand(1, 2) - 1)
+            self.p = np.copy(self.formation_ref) + randon_translation
+            self.leader_goal = self.p[0, :]
+        else:
+            raise ValueError(f'Wrong point initialization "{self.config.formation_params.init_points}". Try [random, in_formation]')
+
         #self.p = np.array([[0.0, 0.0], [1.0, 0.0], [-2.0, 0.0]])
-        #self.p = (self.bounds[1] - self.bounds[0]) * np.random.rand(self.n_agents, 2) + self.bounds[0]
-        randon_translation = 0.3 * (self.bounds[1] - self.bounds[0]) * (2 * np.random.rand(1, 2) - 1)
 
-        self.p = np.copy(self.formation_ref) + randon_translation
         self.vel = np.zeros_like(self.p)
-
-        self.leader_goal = self.p[0, :]
 
         self.iter = 0
 
@@ -183,7 +200,7 @@ class TurbulentFormationEnv(gym.Env):
         w_wr_mag = (v_wr ** 2).sum(axis=-1, keepdims=True)
 
         # Observations are a flatten version of the state matrix
-        observation = np.concatenate([self.vel, v_wr, P_t, w_wr_mag, np.zeros([self.n_agents, self.action_dim])], axis=1).reshape(-1)
+        observation = np.concatenate([self.p, self.vel, v_wr, P_t, w_wr_mag, np.zeros([self.n_agents, self.action_dim])], axis=1).reshape(-1)
 
         return observation
 
@@ -214,7 +231,8 @@ class TurbulentFormationEnv(gym.Env):
 
         acc = np.zeros((self.n_agents, 2))
 
-        acc[0, :] = 0.5 * self.K_p * (self.leader_goal - self.p[0, :]) + self.K_d * (leader_vel - self.vel[0, :])
+        #acc[0, :] = 0.5 * self.K_p * (self.leader_goal - self.p[0, :]) + self.K_d * (leader_vel - self.vel[0, :])
+        acc[0, :] = self.K_p * (self.leader_goal - self.p[0, :]) + self.K_d * (leader_vel - self.vel[0, :])
 
         # Applies the formation control
         for i in range(1, self.n_agents):
@@ -253,13 +271,30 @@ class TurbulentFormationEnv(gym.Env):
 
         w_wr_mag = (v_wr ** 2).sum(axis=-1, keepdims=True)
 
-        S_error = self.compute_state_error(self.p, self.vel, p_pred, vel_pred)
-        reward = -0.01 * np.linalg.norm(S_error, axis=-1).sum()
+        #S_error = self.compute_state_error(self.p, self.vel, p_pred, vel_pred)
+        S_error = self.vel - vel_pred
 
+        reward = 0.0
+        if self.config.RL_parameters.use_error_mag_reward:
+            #reward += -0.1 * (S_error**2).mean()
+            wg = self.config.RL_parameters.error_mag_reward_weight
+            reward += - wg * (np.linalg.norm(S_error, axis=-1)).mean()
+
+        # Cosine similarity reward
+        if self.config.RL_parameters.use_cosine_reward:
+            wg = self.config.RL_parameters.cosine_reward_weight
+            reward += wg * ((normalize(self.vel, axis=-1) * normalize(vel_pred, axis=-1)).sum(axis=-1) - 1.0).mean()
+
+        # Minimum energy reward
+        if self.config.RL_parameters.use_action_mag_reward:
+            wg = self.config.RL_parameters.action_mag_reward_weight
+            reward += - wg * np.linalg.norm(action, axis=-1).mean()
+
+        # Computes the formation error
         self.formation_error[:, self.iter] = self.compute_formation_error()
 
         # Observations are a flatten version of the state matrix
-        observation = np.concatenate([self.vel, v_wr, P_d, w_wr_mag, S_error], axis=1).reshape(-1)
+        observation = np.concatenate([self.p, self.vel, v_wr, P_d, w_wr_mag, S_error], axis=1).reshape(-1)
         # observation = self.p.reshape(-1)
 
         # check if any robot is out of the working space. If it is the case creates a big negative reward
@@ -268,9 +303,9 @@ class TurbulentFormationEnv(gym.Env):
 
         self.iter += 1
         if np.any(bounds_cond):
-            reward += -100.0
-            done = True
-        elif self.iter >= self._max_episode_steps:
+            reward += -10.0
+
+        if self.iter >= self._max_episode_steps:
             done = True
         else:
             done = False
@@ -355,8 +390,9 @@ class TurbulentFormationEnv(gym.Env):
                 align_corners=True,
             ).view(2, -1).cpu().T.numpy()
         elif self.config.turbulence_model == 'constant':
-            base_wind = np.array([[10.0, 0.0]])
-            v = base_wind * np.ones_like(query_points)
+            rot_mat = np.array([[np.cos(self.wind_theta), -np.sin(self.wind_theta)], [np.sin(self.wind_theta), np.cos(self.wind_theta)]])
+            base_wind = np.array([[8.0, 0.0]]) @ rot_mat.T
+            v = base_wind * np.ones_like(query_points) + np.random.normal(loc=0.0, scale=0.5, size=query_points.shape)
         elif self.config.turbulence_model == 'circular':
             theta = np.arctan2(query_points[:, 1], query_points[:, 0])
             v = 10 * np.concatenate([-np.sin(theta)[:, None], np.cos(theta)[:, None]], axis=-1)
@@ -415,7 +451,9 @@ class TurbulentFormationEnv(gym.Env):
         # Computes the plot title text
         title = ''
         for i in range(self.last_action.shape[0]):
-            title = f'{title} | Act. Node {i}=[{self.last_action[i, 0]:.3f}, {self.last_action[i, 1]:.3f}]'
+            sp_x = ' ' if self.last_action[i, 0] >= 0 else ''
+            sp_y = ' ' if self.last_action[i, 0] >= 0 else ''
+            title = f'{title} | Act. Node {i}=[{sp_x}{self.last_action[i, 0]:.3f}, {sp_y}{self.last_action[i, 1]:.3f}]'
 
         if self.fig is None:
             plt.ion()
