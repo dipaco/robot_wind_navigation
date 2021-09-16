@@ -99,14 +99,13 @@ class TurbulentFormationEnv(gym.Env):
         elif self.config.turbulence_model == 'NS':
             self.wind_sim_dict = {}
             self.selected_sim = None
+            # all_sims = [d for d in map(lambda x: os.path.join(sim_path, x), os.listdir(sim_path)) if os.path.isdir(d)]
+            self.all_sims = [d for d in os.listdir(self.config.turbulence_base_folder) if os.path.isdir(os.path.join(self.config.turbulence_base_folder, d))]
+            assert len(self.all_sims) > 0, f"There are no valid simulation in {self.config.turbulence_base_folder}"
+
         elif self.config.turbulence_model == 'constant':
             self.wind_theta = np.pi * (2*np.random.rand() - 1)
             self.wind_theta = 0.0
-
-            # all_sims = [d for d in map(lambda x: os.path.join(sim_path, x), os.listdir(sim_path)) if os.path.isdir(d)]
-            self.all_sims = [d for d in os.listdir(self.config.turbulence_base_folder) if
-                             os.path.isdir(os.path.join(self.config.turbulence_base_folder, d))]
-            assert len(self.all_sims) > 0, f"There are no valid simulation in {self.config.turbulence_base_folder}"
 
         # setup the action and observation space
         self.action_space = Box(-1.0, 1.0, (self.n_agents * self.action_dim,))
