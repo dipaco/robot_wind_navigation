@@ -13,8 +13,9 @@ git submodule update
 We recommend using the repository within a clean virtual environment. We provide the ```make_env.sh``` script to create a new environment with all the necesary packages to run the project. You just have to run:
 
 ```
-./make_env.sh <env_name>
+conda create -n <env_name> python=3.8 --no-default-packages -y
 conda activate <env_name>
+./make_env.sh
 ./run.sh
 ```
 
