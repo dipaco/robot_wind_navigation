@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # Trick to be able to use conda on a shell script. Others use <conda init bash> instead
-source ~/.bashrc
+#source ~/.bashrc
 
 # Creates and activates conda environment
-conda create -n $1 python=3.8 --no-default-packages -y
-conda activate $1
+#conda create -n $1 python=3.8 --no-default-packages -y
+#conda activate $1
 conda install pytorch==1.9.0 -c pytorch -y
 conda install pytorch-geometric -c rusty1s -c conda-forge -y
 conda install -c conda-forge fluidsim gym tensorboardx -y
