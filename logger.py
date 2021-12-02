@@ -120,12 +120,13 @@ class Logger(object):
                  log_dir,
                  save_tb=False,
                  log_frequency=10000,
-                 agent='sac'):
+                 agent='sac',
+                 overwrite_tb_folder=False):
         self._log_dir = log_dir
         self._log_frequency = log_frequency
         if save_tb:
             tb_dir = os.path.join(log_dir, 'tb')
-            if os.path.exists(tb_dir):
+            if os.path.exists(tb_dir) and overwrite_tb_folder:
                 try:
                     shutil.rmtree(tb_dir)
                 except:
