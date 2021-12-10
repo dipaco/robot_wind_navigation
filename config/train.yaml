@@ -6,22 +6,29 @@ env: cheetah_run
 # this needs to be specified manually
 experiment: test_exp
 
-num_train_steps: 1e7
+num_train_steps: 2e6
+save_steps: 100000
+time_to_run: 85500 # about 11:45 hours
+resume: true
 replay_buffer_capacity: ${num_train_steps}
+base_lr: 1e-3
+decay_step_size: 1e5
+decay_factor: 0.71
 
 num_seed_steps: 5000
 
-eval_frequency: 10000
-num_eval_episodes: 5
+eval_frequency: 100000
+num_eval_episodes: 20
 
 device: cuda
 
 # logger
-log_frequency: 10000
+log_frequency: 5000
 log_save_tb: true
 
 # video recorder
 save_video: true
+frame_height: 540
 
 seed: 1
 
@@ -29,11 +36,12 @@ seed: 1
 gnn_parameters:
     conv_type: edge # [node, edge]
     input_batch_norm: false
+    ignore_neighbors: false
 
 # turbulence options
 only_do_turb_control: false
 use_turbulence_control: true
-turbulence_model: constant    #[NS, null, constant, circular]
+turbulence_model: NS    #[NS, null, constant, circular]
 sim_dim: 2
 turbulence_base_folder: /mnt/beegfs/data/diego/turbulence/
 use_ns_regularization: false
@@ -41,9 +49,9 @@ ns_regularization_weight: 1.0
 
 RL_parameters:
     use_error_mag_reward: true
-    error_mag_reward_weight: 0.01
+    error_mag_reward_weight: 1.0
     use_cosine_reward: false
-    cosine_reward_weight: 0.05
+    cosine_reward_weight: 5.0
     use_action_mag_reward: true
     action_mag_reward_weight: 0.01
 

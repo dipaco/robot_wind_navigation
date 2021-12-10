@@ -2,6 +2,7 @@ import os
 import sys
 import gym
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 import numpy as np
 import copy
 import networkx as nx
@@ -92,6 +93,7 @@ class TurbulentFormationEnv(gym.Env):
 
         # Metrics
         self.formation_error = np.zeros((self.n_agents, self._max_episode_steps))
+        self.position_error = np.zeros((self.n_agents, self._max_episode_steps))
 
         # setup turbulence
         if self.config.turbulence_model == 'random':
@@ -277,7 +279,8 @@ class TurbulentFormationEnv(gym.Env):
         if self.config.RL_parameters.use_error_mag_reward:
             #reward += -0.1 * (S_error**2).mean()
             wg = self.config.RL_parameters.error_mag_reward_weight
-            reward += - wg * (np.linalg.norm(S_error, axis=-1)).mean()
+            #reward += - wg * (np.linalg.norm(S_error, axis=-1)).mean()
+            reward += - wg * (S_error**2).sum(axis=-1).mean()
 
         # Cosine similarity reward
         if self.config.RL_parameters.use_cosine_reward:
@@ -287,10 +290,12 @@ class TurbulentFormationEnv(gym.Env):
         # Minimum energy reward
         if self.config.RL_parameters.use_action_mag_reward:
             wg = self.config.RL_parameters.action_mag_reward_weight
-            reward += - wg * np.linalg.norm(action, axis=-1).mean()
+            #reward += - wg * np.linalg.norm(action, axis=-1).mean()
+            reward += - wg * (action**2).sum(axis=-1).mean()
 
         # Computes the formation error
-        self.formation_error[:, self.iter] = self.compute_formation_error()
+        self.formation_error[:, self.iter] = self._compute_formation_error()
+        self.position_error[:, self.iter] = self._compute_position_error()
 
         # Observations are a flatten version of the state matrix
         observation = np.concatenate([self.p, self.vel, v_wr, P_d, w_wr_mag, S_error], axis=1).reshape(-1)
@@ -413,13 +418,17 @@ class TurbulentFormationEnv(gym.Env):
         # that sign oscillation can be problematic
         return -np.abs(reward)
 
-    def compute_formation_error(self):
+    def _compute_formation_error(self):
 
         error = np.zeros(self.n_agents)
         for i in range(self.n_agents):
             for j in self.G.neighbors(i):
                 error[i] += np.linalg.norm(self.p[i, :] - self.p[j, :]) - \
                           np.linalg.norm(self.formation_ref[i, :] - self.formation_ref[j, :])
+        return error
+
+    def _compute_position_error(self):
+        error = np.linalg.norm(self.leader_goal[None] + (self.formation_ref - self.formation_ref[0:1, :]) - self.p, axis=1)
         return error
 
     def compute_state_error(self, p_r, vel_r, p_p, vel_p):
@@ -451,15 +460,15 @@ class TurbulentFormationEnv(gym.Env):
         title = ''
         for i in range(self.last_action.shape[0]):
             sp_x = ' ' if self.last_action[i, 0] >= 0 else ''
-            sp_y = ' ' if self.last_action[i, 0] >= 0 else ''
-            title = f'{title} | Act. Node {i}=[{sp_x}{self.last_action[i, 0]:.3f}, {sp_y}{self.last_action[i, 1]:.3f}]'
+            sp_y = ' ' if self.last_action[i, 1] >= 0 else ''
+            title = f'{title} | Act. Node {i}=[{sp_x}{self.last_action[i, 0]:.2f}, {sp_y}{self.last_action[i, 1]:.2f}]'
 
         if self.fig is None:
             plt.ion()
 
             # Figure aspect ratio.
-            fig_aspect_ratio = 16.0 / 9.0  # Aspect ratio of video.
-            fig_pixel_height = 540  # Height of video in pixels.
+            fig_aspect_ratio = 18.0 / 9.0  # Aspect ratio of video.
+            fig_pixel_height = self.config.frame_height # 540  # Height of video in pixels.
             dpi = 150  # Pixels per inch (affects fonts and apparent size of inch-scale objects).
 
             # Set the figure to obtain aspect ratio and pixel size.
@@ -485,12 +494,15 @@ class TurbulentFormationEnv(gym.Env):
 
             self.goal_handle = self.ax.scatter(self.leader_goal[0], self.leader_goal[1], 20, 'red')
 
-            self.ax.set_title(title, fontsize=8)
+            self.ax.set_title(title, fontsize=6)
 
             # Draw the disturbance vector field
             # NOTE: For what ever the reason the bigger the `scale` the smaller the arrows are
             if self.config.turbulence_model is not None:
                 self.vf_handle = self.ax.quiver(x, y, v[:, 0], v[:, 1], color=[0.4, 0.83, 0.97, 0.85], scale=200)
+
+            # plots the action arrows on top of the robots
+            self.action_arrow_handle = self.ax.quiver(self.p[:, 0], self.p[:, 1], self.last_action[:, 0], self.last_action[:, 1], color='orange', scale=200)
 
             self.fig.canvas.draw()
             self.fig.canvas.flush_events()
@@ -508,6 +520,15 @@ class TurbulentFormationEnv(gym.Env):
             if self.config.turbulence_model is not None:
                 self.vf_handle.set_UVC(v[:, 0], v[:, 1])
 
+            for i in range(self.last_action.shape[0]):
+                #self.action_arrow_handle[i].clear()
+                #self.action_arrow_handle.append(self.ax.quiver(self.p[i, 0], self.p[i, 1], self.last_action[i, 0], self.last_action[i, 1], color='orange', scale=200))
+
+                self.action_arrow_handle.remove()
+                #self.action_arrow_handle.XY = self.p.copy()
+                #self.action_arrow_handle.set_UVC(self.last_action[:, 0], self.last_action[:, 1])
+                self.action_arrow_handle = self.ax.quiver(self.p[:, 0], self.p[:, 1], self.last_action[:, 0], self.last_action[:, 1], color='orange', scale=200)
+
             self.fig.canvas.draw()
             self.fig.canvas.flush_events()
 
@@ -516,10 +537,6 @@ class TurbulentFormationEnv(gym.Env):
             image_from_plot = image_from_plot.reshape(self.fig.canvas.get_width_height()[::-1] + (3,))
 
             return image_from_plot
-
-    def get_formation_conf(self, formation):
-        if formation == 0:
-            pass
 
     def set_formation_conf(self):
         self.G = nx.Graph()
@@ -564,7 +581,7 @@ class TurbulentFormationEnv(gym.Env):
 
         ax.legend(loc='upper right', prop={'size': 6})
         ax.grid()
-        ax.set_ylim(self.bounds[0], self.bounds[1])
+        ax.set_ylim(0.6 * self.bounds[0], 0.6 * self.bounds[1])
         ax.set_title(f'Formation error')
         fig.savefig(os.path.join(results_folder, f'step_{step}_formation_error.png'))
         plt.close(fig)
@@ -577,5 +594,70 @@ class TurbulentFormationEnv(gym.Env):
         plt.savefig('saved_figure_50_MaxSteps.png')
         plt.clf()'''
 
-    def get_formation_error(self):
-        return self.formation_error
+    def plot_episode_evaluation(self, data_dict, results_folder, step=0):
+
+        # values in the x-axis (time)
+        x = self.dt * np.arange(self._max_episode_steps)
+
+        if 'formation_error' in data_dict:
+            fig = plt.figure()
+            ax = fig.add_subplot(1, 1, 1)
+
+            #colors = cm.rainbow(np.linspace(0, 1, eval_data.shape[0]))
+            colors = cm.Set1(np.linspace(0, 1, data_dict['formation_error'].shape[1]))
+            for i in range(0, self.n_agents):
+                mean_data = data_dict['formation_error'].mean(axis=0)
+                sdt_data = data_dict['formation_error'].std(axis=0)
+
+                ax.plot(x, mean_data[i, :], label=f'Robot {i}', color=colors[i])
+                ax.fill_between(x, mean_data[i] - sdt_data[i], mean_data[i] + sdt_data[i], color=colors[i], alpha=0.1)
+
+            ax.legend(loc='upper right', prop={'size': 6})
+            ax.grid()
+            ax.set_ylim(0.6 * self.bounds[0], 0.6 * self.bounds[1])
+            ax.set_title(f'Formation error')
+            fig.savefig(os.path.join(results_folder, f'step_{step}_formation_error.png'))
+            plt.close(fig)
+
+        # Position error figure
+        if 'position_error' in data_dict:
+            fig = plt.figure()
+            ax = fig.add_subplot(1, 1, 1)
+
+            # colors = cm.rainbow(np.linspace(0, 1, eval_data.shape[0]))
+            colors = cm.Set1(np.linspace(0, 1, data_dict['position_error'].shape[1]))
+            for i in range(0, self.n_agents):
+                mean_data = data_dict['position_error'].mean(axis=0)
+                sdt_data = data_dict['position_error'].std(axis=0)
+
+                ax.plot(x, mean_data[i, :], label=f'Robot {i}', color=colors[i])
+                ax.fill_between(x, mean_data[i] - sdt_data[i], mean_data[i] + sdt_data[i], color=colors[i], alpha=0.1)
+
+            ax.legend(loc='upper right', prop={'size': 6})
+            ax.grid()
+            ax.set_ylim(0.2 * self.bounds[0], 0.6 * self.bounds[1])
+            ax.set_title(f'Position error')
+            fig.savefig(os.path.join(results_folder, f'step_{step}_position_error.png'))
+            plt.close(fig)
+
+            # robot error figure
+            fig = plt.figure()
+            ax = fig.add_subplot(1, 1, 1)
+
+            ax.boxplot(np.transpose(data_dict['position_error'], axes=[0, 2, 1]).reshape(-1, self.n_agents))
+
+            ax.legend(loc='upper right', prop={'size': 6})
+            ax.grid()
+            ax.set_ylim(0.2 * self.bounds[0], 0.6 * self.bounds[1])
+            ax.set_title(f'Position error per robot')
+            fig.savefig(os.path.join(results_folder, f'step_{step}_position_error_per_robot.png'))
+            plt.close(fig)
+
+    def get_errors(self):
+
+        errors = {
+            'formation_error': self.formation_error.copy(),
+            'position_error': self.position_error.copy(),
+        }
+
+        return errors

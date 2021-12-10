@@ -9,6 +9,8 @@ import os
 import sys
 import time
 import yaml
+import shutil
+import signal
 import pickle as pkl
 
 __BASE_FOLDER__ = os.path.dirname(os.path.abspath(__file__))
@@ -65,10 +67,10 @@ class Workspace(object):
 
         self.cfg = cfg
 
-        self.logger = Logger(self.work_dir,
+        '''self.logger = Logger(self.work_dir,
                              save_tb=cfg.log_save_tb,
                              log_frequency=cfg.log_frequency,
-                             agent=cfg.agent.name)
+                             agent=cfg.agent.name)'''
 
         utils.set_seed_everywhere(cfg.seed)
         self.device = torch.device(cfg.device)
@@ -93,14 +95,32 @@ class Workspace(object):
                                           int(cfg.replay_buffer_capacity),
                                           self.device)
 
-        self.video_recorder = VideoRecorder(
-            self.work_dir if cfg.save_video else None, fps=15)
+        self.video_recorder = VideoRecorder(self.work_dir if cfg.save_video else None, fps=15)
+
+        self.train_episode = 0
         self.step = 0
+
+        #FIXME: Create a class to do this
+        # Checkpoints
+        self.checkpoint_folder = os.path.join(self.work_dir, 'checkpoints')
+        self.latest_checkpoint = os.path.join(self.checkpoint_folder, 'latest.pt')
+        self.previous_checkpoint = os.path.join(self.checkpoint_folder, 'previous.pt')
+        os.makedirs(self.checkpoint_folder, exist_ok=True)
+
+        if self.cfg.resume and os.path.exists(self.latest_checkpoint):
+            self.load_progress()
+
+        # Register all the signal callbacks to control cluster training
+        self.exit_code = None
+        signal.signal(signal.SIGTERM, self.capture_signal)
+        signal.signal(signal.SIGALRM, self.capture_signal)
+        signal.alarm(self.cfg.time_to_run)
 
     def evaluate(self):
         average_episode_reward = 0
         results_folder = os.path.join(self.work_dir, 'results')
         os.makedirs(results_folder, exist_ok=True)
+        eval_errors = {}
         for episode in range(self.cfg.num_eval_episodes):
             obs = self.env.reset()
             self.agent.reset()
@@ -108,6 +128,12 @@ class Workspace(object):
             done = False
             episode_reward = 0
             while not done:
+
+                # Terminate with the appropriate exit code
+                if self.exit_code == 3:
+                    self.save_progress()
+                    return self.exit_code
+
                 with utils.eval_mode(self.agent):
                     action = self.agent.act(obs, sample=False)
                 obs, reward, done, _ = self.env.step(action)
@@ -121,34 +147,56 @@ class Workspace(object):
             if episode == 0:
                 self.video_recorder.save(f'{self.step}.mp4')
 
-                # save formation error data and plots
-                self.env.plot_episode(results_folder=results_folder, step=self.step)
-                np.savez(os.path.join(results_folder, f'step_{self.step}_formation_error.npz'), formation_error=self.env.get_formation_error())
+            # append the the episode errors to the error list
+            for k, v in self.env.get_errors().items():
+                if k in eval_errors:
+                    eval_errors[k].append(v)
+                else:
+                    eval_errors[k] = [v]
+
+        for k, v in eval_errors.items():
+            eval_errors[k] = np.stack(eval_errors[k])
+
+        # save formation error data and plots
+        np.save(os.path.join(results_folder, f'step_{self.step}_eval_formation_error.npy'), eval_errors)
+        self.env.plot_episode_evaluation(data_dict=eval_errors, results_folder=results_folder, step=self.step)
 
         average_episode_reward /= self.cfg.num_eval_episodes
-        self.logger.log('eval/episode_reward', average_episode_reward,
-                        self.step)
+        self.logger.log('eval/episode_reward', average_episode_reward, self.step)
         self.logger.dump(self.step)
 
     def run(self):
-        episode, episode_reward, done = 0, 0, True
+        episode_reward, done, ff = 0, True, False
         start_time = time.time()
         num_evaluations = 0
+        init_step = self.step   # to handle some troubles when resuming from a checkpoint
         while self.step < self.cfg.num_train_steps:
+
+            # Terminate with the appropriate exit code
+            if self.exit_code == 3:
+                self.save_progress()
+                return self.exit_code
+
+            # Saves a checkpoint after
+            if (self.step + 1) % self.cfg.save_steps == 0:
+                self.save_progress()
+
             if done:
-                if self.step > 0:
-                    self.logger.log('train/duration',
-                                    time.time() - start_time, self.step)
+                if self.step > init_step:
+                    self.logger.log('train/duration', time.time() - start_time, self.step)
                     start_time = time.time()
-                    self.logger.dump(
-                        self.step, save=(self.step > self.cfg.num_seed_steps))
+                    self.logger.dump(self.step, save=(self.step > self.cfg.num_seed_steps))
 
                 # evaluate agent periodically
                 #if self.step > 0 and self.step % self.cfg.eval_frequency == 0:
                 if self.step > 0 and (self.step // self.cfg.eval_frequency) > num_evaluations:
                     num_evaluations = self.step // self.cfg.eval_frequency
-                    self.logger.log('eval/episode', episode, self.step)
-                    self.evaluate()
+                    self.logger.log('eval/episode', self.train_episode, self.step)
+                    self.save_progress()
+
+                    # if evaluation ended with exit code 3, we propagate the sys.exit
+                    if self.evaluate() == 3:
+                        return self.exit_code
 
                 self.logger.log('train/episode_reward', episode_reward,
                                 self.step)
@@ -158,9 +206,9 @@ class Workspace(object):
                 done = False
                 episode_reward = 0
                 episode_step = 0
-                episode += 1
+                self.train_episode += 1
 
-                self.logger.log('train/episode', episode, self.step)
+                self.logger.log('train/episode', self.train_episode, self.step)
 
             # sample action for data collection
             if self.step < self.cfg.num_seed_steps:
@@ -187,6 +235,54 @@ class Workspace(object):
             episode_step += 1
             self.step += 1
 
+    def save_progress(self):
+        """
+        Saves the model into a checkpoint
+        """
+        if os.path.exists(self.latest_checkpoint):
+            shutil.move(self.latest_checkpoint, self.previous_checkpoint)
+
+        torch.save({
+            'episode': self.train_episode,
+            'step': self.step,
+            'actor_state_dict': self.agent.actor.state_dict(),
+            'critic_state_dict': self.agent.critic.state_dict(),
+            'alpha_state_dict': self.agent.alpha,
+            'actor_lr_scheduler_dict': self.agent.actor_lr_scheduler.state_dict(),
+            'critic_lr_scheduler_dict': self.agent.critic_lr_scheduler.state_dict(),
+            'log_alpha_lr_scheduler_dict': self.agent.log_alpha_lr_scheduler.state_dict(),
+            'actor_optimizer_dict': self.agent.actor_optimizer.state_dict(),
+            'critic_optimizer_dict': self.agent.critic_optimizer.state_dict(),
+            'log_alpha_optimizer_dict': self.agent.log_alpha_optimizer.state_dict(),
+            'replay_buffer': self.replay_buffer,
+        }, self.latest_checkpoint)
+
+    def load_progress(self):
+        checkpoint = torch.load(self.latest_checkpoint)
+        self.agent.actor.load_state_dict(checkpoint['actor_state_dict'])
+        self.agent.critic.load_state_dict(checkpoint['critic_state_dict'])
+        self.agent.alpha = checkpoint['alpha_state_dict']
+        self.agent.actor_lr_scheduler.load_state_dict(checkpoint['actor_lr_scheduler_dict'])
+        self.agent.critic_lr_scheduler.load_state_dict(checkpoint['critic_lr_scheduler_dict'])
+        self.agent.log_alpha_lr_scheduler.load_state_dict(checkpoint['log_alpha_lr_scheduler_dict'])
+        self.agent.actor_optimizer.load_state_dict(checkpoint['actor_optimizer_dict'])
+        self.agent.critic_optimizer.load_state_dict(checkpoint['critic_optimizer_dict'])
+        self.agent.log_alpha_optimizer.load_state_dict(checkpoint['log_alpha_optimizer_dict'])
+        self.replay_buffer = checkpoint['replay_buffer']
+        self.train_episode = checkpoint['episode']
+        self.step = checkpoint['step']
+
+    def capture_signal(self, signal_num, frame):
+        print("Received signal", signal_num)
+        #self.logger.log('Received signal')
+
+        if signal_num == signal.SIGTERM:
+            self.exit_code = 3
+        elif signal_num == signal.SIGALRM:
+            self.exit_code = 3
+        else:
+            self.exit_code = 0
+
 
 def yaml_to_obj(cfg_dict, node='root'):
 
@@ -208,6 +304,12 @@ def main(cfg):
     workspace = Workspace(cfg)
     workspace.run()
 
+    if workspace.exit_code == 3:
+        return workspace.exit_code
+
 
 if __name__ == '__main__':
-    main()
+    exit_code = main()
+
+    if exit_code == 3:
+        sys.exit(exit_code)

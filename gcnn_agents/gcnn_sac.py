@@ -10,14 +10,28 @@ class GCNNSACAgent(SACAgent):
                  actor_cfg, discount, init_temperature, alpha_lr, alpha_betas,
                  actor_lr, actor_betas, actor_update_frequency, critic_lr,
                  critic_betas, critic_tau, critic_target_update_frequency,
-                 batch_size, learnable_temperature, num_nodes, use_ns_regularization, ns_regularization_weight):
+                 batch_size, learnable_temperature, num_nodes, use_ns_regularization,
+                 ns_regularization_weight, decay_step_size=int(1e10), decay_factor=0.9):
         super().__init__(obs_dim, action_dim, action_range, device, critic_cfg, actor_cfg, discount, init_temperature,
                          alpha_lr, alpha_betas, actor_lr, actor_betas, actor_update_frequency, critic_lr, critic_betas,
                          critic_tau, critic_target_update_frequency, batch_size, learnable_temperature)
 
+        # set the learning rate scheduler
+        self.actor_lr_scheduler = torch.optim.lr_scheduler.StepLR(self.actor_optimizer, step_size=decay_step_size, gamma=decay_factor)
+        self.critic_lr_scheduler = torch.optim.lr_scheduler.StepLR(self.critic_optimizer, step_size=decay_step_size, gamma=decay_factor)
+        self.log_alpha_lr_scheduler = torch.optim.lr_scheduler.StepLR(self.log_alpha_optimizer, step_size=decay_step_size, gamma=decay_factor)
+
         self.num_nodes = num_nodes
         self.use_ns_regularization = use_ns_regularization
         self.ns_regularization_weight = ns_regularization_weight
+
+    @property
+    def alpha(self):
+        return self.log_alpha.exp()
+
+    @alpha.setter
+    def alpha(self, new_alpha):
+        self.log_alpha.data = torch.log(new_alpha)
 
     def act(self, obs, sample=False, return_ns_loss=False):
         obs = torch.FloatTensor(obs).to(self.device)
@@ -53,6 +67,7 @@ class GCNNSACAgent(SACAgent):
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         self.critic_optimizer.step()
+        self.critic_lr_scheduler.step()
 
         self.critic.log(logger, step)
 
@@ -80,6 +95,7 @@ class GCNNSACAgent(SACAgent):
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
         self.actor_optimizer.step()
+        self.actor_lr_scheduler.step()
 
         self.actor.log(logger, step)
 
@@ -91,3 +107,6 @@ class GCNNSACAgent(SACAgent):
             logger.log('train_alpha/value', self.alpha, step)
             alpha_loss.backward()
             self.log_alpha_optimizer.step()
+            self.log_alpha_lr_scheduler.step()
+
+        logger.log('train/learning_rate', self.actor_lr_scheduler.get_last_lr()[0], step)
