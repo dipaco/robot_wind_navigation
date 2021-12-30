@@ -6,7 +6,7 @@ import networkx as nx
 from torch import nn
 from .agent_utils import create_gcnn, create_mlp, zero_weight_init
 from torch_geometric import nn as gnn
-from torch_geometric.utils import to_undirected
+from torch_geometric.utils import to_undirected, add_self_loops
 import torch.nn.functional as F
 
 import utils
@@ -18,7 +18,7 @@ from agent_utils import get_formation_conf
 
 class GCNNDoubleQCritic(nn.Module):
     """Critic network, employes double Q-learning."""
-    def __init__(self, num_nodes, obs_dim, action_dim, hidden_dim, hidden_depth, conv_type, input_batch_norm, formation_type):
+    def __init__(self, num_nodes, obs_dim, action_dim, hidden_dim, hidden_depth, conv_type, input_batch_norm, formation_type, ignore_neighbors):
         super().__init__()
 
         self.num_nodes = num_nodes
@@ -30,6 +30,7 @@ class GCNNDoubleQCritic(nn.Module):
         self.input_batch_norm = input_batch_norm
         self.formation_type = formation_type
         self.use_output_mlp = False
+        self.ignore_neighbors = ignore_neighbors
 
         assert self.obs_dim % self.num_nodes == 0, f'The number of robots (nodes={self.num_nodes})' \
                                                    f' do not divide the observation space size ({self.obs_dim}.)'
@@ -96,8 +97,13 @@ class GCNNDoubleQCritic(nn.Module):
         input_features = obs_action.view(bs * self.num_nodes, -1)
 
         # FIXME: This can be definitely done better using the Batch Class from torch_geometric
-        edges = to_undirected(torch.tensor([e for e in self.G.edges], device=input_features.device).long().T)
-        edges = torch.cat([edges + i*self.num_nodes for i in range(bs)], dim=-1)
+        if self.ignore_neighbors:
+            edges = torch.stack(2 * [torch.arange(self.num_nodes, device=input_features.device)]).long()
+        else:
+            edges = to_undirected(torch.tensor([e for e in self.G.edges], device=input_features.device).long().T)
+            if self.conv_type == 'edge':
+                edges, _ = add_self_loops(edges, num_nodes=self.num_nodes)
+        edges = torch.cat([edges + i * self.num_nodes for i in range(bs)], dim=-1)
 
         if self.use_output_mlp:
             out1 = self.Q1(input_features, edges)

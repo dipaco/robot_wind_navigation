@@ -36,8 +36,9 @@ double_q_critic:
     input_batch_norm: ${gnn_parameters.input_batch_norm}
     obs_dim: ${agent.params.obs_dim}
     action_dim: ${agent.params.action_dim}
-    hidden_dim: 256
+    hidden_dim: ${gnn_parameters.hidden_dim}
     hidden_depth: 2
+    ignore_neighbors: ${gnn_parameters.ignore_neighbors}
     
 diag_gaussian_actor:
   class: gcnn_agents.GCNNDiagGaussianActor
@@ -50,5 +51,6 @@ diag_gaussian_actor:
     obs_dim: ${agent.params.obs_dim}
     action_dim: ${agent.params.action_dim}
     hidden_depth: 2
-    hidden_dim: 256
+    hidden_dim: ${gnn_parameters.hidden_dim}
     log_std_bounds: [-0.2, 0.2]
+    ignore_neighbors: ${gnn_parameters.ignore_neighbors}

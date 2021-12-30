@@ -1,3 +1,4 @@
+import math
 import os
 import sys
 import gym
@@ -20,6 +21,12 @@ from agent_utils import get_formation_conf, normalize
 
 
 class TurbulentFormationEnv(gym.Env):
+    WIND_SENSOR_MAX_SPEED = 60.0
+    WIND_SENSOR_MAG_ACC = 0.02 * WIND_SENSOR_MAX_SPEED
+    WIND_SENSOR_DIR_ACC = 3 * np.pi / 180
+    WIND_SENSOR_MAG_RES = 1 # number of decimal places
+    WIND_SENSOR_DIR_RES = 2 # number of decimal places
+
     def __init__(self, config):
 
         # setup the config options
@@ -197,13 +204,45 @@ class TurbulentFormationEnv(gym.Env):
         # Get the total pressure
         P_t = self._get_pressure(v_wr)
 
-        # computes the squared wind magnitude
-        w_wr_mag = (v_wr ** 2).sum(axis=-1, keepdims=True)
-
         # Observations are a flatten version of the state matrix
-        observation = np.concatenate([self.p, self.vel, v_wr, P_t, w_wr_mag, np.zeros([self.n_agents, self.action_dim])], axis=1).reshape(-1)
+        v_wr_sensor = self._real_wind_to_sensor(v_wr)
+        # computes the squared wind magnitude
+        v_wr_mag = (v_wr_sensor ** 2).sum(axis=-1, keepdims=True)
+        observation = np.concatenate([
+            self.p, self.vel, v_wr_sensor, P_t, v_wr_mag, np.zeros([self.n_agents, self.action_dim])
+        ], axis=1).reshape(-1)
 
         return observation
+
+    def _real_wind_to_sensor(self, w_real):
+        """
+            Simulates an ultrasonic wind sensor and its inaccuracies.
+        """
+        # We add noise to the measurement to simulate sensor accuracy/uncertainty
+        noise_in_polars = np.random.normal(loc=np.zeros_like(w_real), scale=[self.WIND_SENSOR_MAG_ACC, self.WIND_SENSOR_DIR_ACC] * np.ones_like(w_real))
+        w_sensed = self._polar2cartesian(self._cartesian2polar(w_real) + noise_in_polars)
+
+        # We round the numbers to simulate sensor resolution
+        w_sensed = np.stack([
+            np.round(w_sensed[..., 0], self.WIND_SENSOR_MAG_RES),
+            np.round(w_sensed[..., 1], self.WIND_SENSOR_DIR_RES),
+        ], axis=-1)
+
+        return w_sensed
+
+    def _cartesian2polar(self, v):
+        assert v.shape[-1] == 2, 'Can only convert to polar vectors of dimension 2.'
+        mag = np.linalg.norm(v, axis=-1)
+        theta = np.arctan2(v[..., 1], v[..., 0])
+        return np.stack([mag, theta], axis=-1)
+
+    def _polar2cartesian(self, v):
+        assert v.shape[-1] == 2, 'Can only convert from polar vectors of dimension 2.'
+        x = np.stack([
+            v[..., 0] * np.cos(v[..., 1]),
+            v[..., 0] * np.sin(v[..., 1]),
+        ], axis=-1)
+        return x
 
     def _get_pressure(self, v_wr):
         # Get the pressure at the robot's locations
@@ -270,8 +309,6 @@ class TurbulentFormationEnv(gym.Env):
 
         P_d = self._get_pressure(v_wr)
 
-        w_wr_mag = (v_wr ** 2).sum(axis=-1, keepdims=True)
-
         #S_error = self.compute_state_error(self.p, self.vel, p_pred, vel_pred)
         S_error = self.vel - vel_pred
 
@@ -298,7 +335,9 @@ class TurbulentFormationEnv(gym.Env):
         self.position_error[:, self.iter] = self._compute_position_error()
 
         # Observations are a flatten version of the state matrix
-        observation = np.concatenate([self.p, self.vel, v_wr, P_d, w_wr_mag, S_error], axis=1).reshape(-1)
+        v_wr_sensor = self._real_wind_to_sensor(v_wr)
+        v_wr_mag = (v_wr_sensor ** 2).sum(axis=-1, keepdims=True)
+        observation = np.concatenate([self.p, self.vel, v_wr_sensor, P_d, v_wr_mag, S_error], axis=1).reshape(-1)
         # observation = self.p.reshape(-1)
 
         # check if any robot is out of the working space. If it is the case creates a big negative reward
@@ -396,7 +435,7 @@ class TurbulentFormationEnv(gym.Env):
         elif self.config.turbulence_model == 'constant':
             rot_mat = np.array([[np.cos(self.wind_theta), -np.sin(self.wind_theta)], [np.sin(self.wind_theta), np.cos(self.wind_theta)]])
             base_wind = np.array([[8.0, 0.0]]) @ rot_mat.T
-            v = base_wind * np.ones_like(query_points) + np.random.normal(loc=0.0, scale=0.5, size=query_points.shape)
+            v = base_wind * np.ones_like(query_points) # + np.random.normal(loc=0.0, scale=0.5, size=query_points.shape)
         elif self.config.turbulence_model == 'circular':
             theta = np.arctan2(query_points[:, 1], query_points[:, 0])
             v = 10 * np.concatenate([-np.sin(theta)[:, None], np.cos(theta)[:, None]], axis=-1)

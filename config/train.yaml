@@ -6,18 +6,18 @@ env: cheetah_run
 # this needs to be specified manually
 experiment: test_exp
 
-num_train_steps: 2e6
-save_steps: 100000
-time_to_run: 85500 # about 11:45 hours
+num_train_steps: 1e6
+save_steps: 50000
+time_to_run: 83880 # about 11:45 hours
 resume: true
 replay_buffer_capacity: ${num_train_steps}
 base_lr: 1e-3
-decay_step_size: 1e5
+decay_step_size: 5e4
 decay_factor: 0.71
 
 num_seed_steps: 5000
 
-eval_frequency: 100000
+eval_frequency: 50000
 num_eval_episodes: 20
 
 device: cuda
@@ -36,6 +36,7 @@ seed: 1
 gnn_parameters:
     conv_type: edge # [node, edge]
     input_batch_norm: false
+    hidden_dim: 1024
     ignore_neighbors: false
 
 # turbulence options
