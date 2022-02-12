@@ -6,10 +6,11 @@ import math
 from torch import nn
 import torch.nn.functional as F
 import networkx as nx
+import torch_scatter
 from torch import distributions as pyd
 from torch_geometric import nn as gnn
 from torch_geometric.utils import to_undirected, add_self_loops
-from .agent_utils import create_gcnn, create_mlp, zero_weight_init
+from .agent_utils import create_gcnn, create_mlp, create_output_mlp, zero_weight_init
 
 import utils
 
@@ -101,18 +102,26 @@ class GCNNDiagGaussianActor(nn.Module):
             self.input_norm_layer = nn.BatchNorm1d(self.obs_dim, track_running_stats=True)
 
         if self.use_ns_regularization:
-            num_dynamic_variables = 4   # p_x_robot, p_y_robot, v_x_robot, v_y_robot
-            self.num_ns_input = gnn_obs_dim - num_dynamic_variables
+            num_excluded_variables = 3   # p_x_robot, p_y_robot, v_x_robot, v_y_robot
+            self.num_ns_input = gnn_obs_dim - num_excluded_variables
             self.num_ns_output = (self.gnn_action_dim * (self.gnn_action_dim + 1)) // 2
-
             self.ns_branch = create_gcnn(self.num_ns_input, self.num_ns_output, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type)
-            self.trunk = create_gcnn(gnn_obs_dim + self.num_ns_output, 2*self.gnn_action_dim, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type)
+            trunk_input_size = gnn_obs_dim + self.num_ns_output
         else:
-            if self.use_output_mlp:
-                self.trunk = create_gcnn(gnn_obs_dim, 2*self.gnn_action_dim, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type, output_layer=False)
-                self.mlp_trunk = create_mlp(self.hidden_dim, 2*self.gnn_action_dim)
+            trunk_input_size = gnn_obs_dim
+
+        if self.use_output_mlp:
+            if self.ignore_neighbors:
+                self.trunk = create_mlp(trunk_input_size, 2 * self.gnn_action_dim, self.hidden_dim, self.hidden_depth)
             else:
-                self.trunk = create_gcnn(gnn_obs_dim, 2 * self.gnn_action_dim, self.hidden_dim, self.hidden_depth,non_linearity=nn.ReLU, conv_type=self.conv_type)
+                self.trunk = create_gcnn(trunk_input_size, 2 * self.gnn_action_dim, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type, output_layer=False)
+
+            self.mlp_trunk = create_output_mlp(self.hidden_dim, 2 * self.gnn_action_dim)
+        else:
+            if self.ignore_neighbors:
+                self.trunk = create_mlp(trunk_input_size, 2 * self.gnn_action_dim, self.hidden_dim, self.hidden_depth)
+            else:
+                self.trunk = create_gcnn(trunk_input_size, 2 * self.gnn_action_dim, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type)
 
         self.outputs = dict()
         #self.apply(zero_weight_init)
@@ -138,21 +147,31 @@ class GCNNDiagGaussianActor(nn.Module):
         if self.use_ns_regularization:
 
             # TODO: What we need is w_bar, we need to fix this
-            w = input_features[:, :, -self.num_ns_input:-self.num_ns_input+self.gnn_action_dim]
-            P = input_features[:, :, -1:]
+            p_idx = 6
+            w_idx = 4
+            x_idx = 0
+            x = input_features[:, x_idx:x_idx + self.gnn_action_dim]    # Get the robots positions
+            w = input_features[:, w_idx:w_idx + self.gnn_action_dim]    # Get average wind vector
+            P = input_features[:, p_idx:p_idx + 1]                      # Get the pressure
 
-            turb_energy = self.ns_branch(input_features[:, :, -self.num_ns_input:], edges)
+            #import pdb
+            #pdb.set_trace()
+            turb_energy = self.ns_branch(input_features[:, :self.num_ns_input], edges)
             input_features = torch.cat([input_features, turb_energy], dim=-1)
 
-            ns_loss = self._get_ns_loss(w, P, turb_energy, edges)
+            ns_loss = self._get_ns_loss(w, x, P, turb_energy, edges)
         else:
             ns_loss = None
 
-        if self.use_output_mlp:
-            out = self.trunk(input_features, edges)
-            mu, log_std = self.mlp_trunk(out).chunk(2, dim=-1)
+        if self.ignore_neighbors:
+            net_args = (input_features, )
         else:
-            mu, log_std = self.trunk(input_features, edges).chunk(2, dim=-1)
+            net_args = (input_features, edges)
+
+        out = self.trunk(*net_args)
+        if self.use_output_mlp:
+            out = self.mlp_trunk(out)
+        mu, log_std = out.chunk(2, dim=-1)
 
         # We can flatten the distribution along the nodes of the graph because the Covariance matrix is diagonal
         mu = mu.contiguous().view(bs, -1)
@@ -175,12 +194,90 @@ class GCNNDiagGaussianActor(nn.Module):
         for k, v in self.outputs.items():
             logger.log_histogram(f'train_actor/{k}_hist', v, step)
 
-        for i, m in enumerate(self.trunk.nns):
-            if type(m) in [gnn.GCNConv]:
+        nets = self.trunk if self.ignore_neighbors else self.trunk.nns
+        for i, m in enumerate(nets):
+            if type(m) in [gnn.GCNConv, nn.Linear]:
                 logger.log_param(f'train_actor/fc{i}', m, step)
 
-    def _spatial_derivative(self, y, edges):
-        return y
+    def _spatial_derivative(self, y, x, edges):
+
+        # FIXME: I am going to hardcode the faces here. We need to look at an strategy for triangulation.
+        device = x.device
+        d = x.shape[-1]
+        x = x[:, 0]
+        y = y[:, 0]
+
+        eps = 1e-8
+
+        no_loop_edges = edges[:, edges[0] != edges[1]]
+
+        edge_coords = x[no_loop_edges.T]
+        edge_f_values = y[no_loop_edges.T].permute(0, 2, 1)
+        #face_f_values = torch.ones_like(face_f_values).permute(0, 2, 1)
+
+        edge_length = (edge_coords[:, 1] - edge_coords[:, 0]).norm(dim=-1)
+
+        A_T = torch.cat([edge_coords, torch.ones(edge_coords.shape[:2] + (1, ), device=device)], dim=-1)
+        A = A_T.permute(0, 2, 1)
+
+        # Thankfully we know a formula to invert 2x2 matrices
+        A_T_A = A_T @ A
+        det = 1/(A_T_A[:, 0, 0]*A_T_A[:, 1, 1] - A_T_A[:, 0, 1]*A_T_A[:, 1, 0])
+        adj = torch.zeros_like(A_T_A)
+        adj[:, 0, 0] = A_T_A[:, 1, 1]
+        adj[:, 1, 1] = A_T_A[:, 0, 0]
+        adj[:, 0, 1] = -A_T_A[:, 1, 0]
+        adj[:, 1, 0] = -A_T_A[:, 0, 1]
+        A_T_A_inv = det[:, None, None] * adj @ A_T
+        B = torch.eye(d + 1, device=device)[None].repeat(A.shape[0], 1, 1)[:, :, :d]
+        H = edge_f_values @ A_T_A_inv @ B
+        #torch.linalg.lstsq(A, B).solution == A.pinv() @ B
+
+        #H = edge_f_values @ torch.linalg.lstsq(A, B).solution
+
+        derivative = torch_scatter.scatter_mean(src=H, index=no_loop_edges[0], dim=0)
+
+        #D = torch.linalg.pinv(A_T @ A) @ A_T
+        #H = (face_f_values.view(-1, 3) @ D) @ torch.eye(d + 1, device=device)[:, :d]
+
+        return derivative
+
+    def _spatial_derivative_3(self, y, x, edges):
+
+        x = x[:, 0]
+        y = y[:, 0]
+
+        eps = 1e-8
+
+        no_loop_edges = edges[:, edges[0] != edges[1]]
+
+        import pdb
+        pdb.set_trace()
+        x_center = x[no_loop_edges[0]]
+        x_neighbors = x[no_loop_edges[1]]
+        d =  x_center
+
+        # Approximate the derivative using the neighbors on each node of the grad
+        delta_y = (y[no_loop_edges[1]] - y[no_loop_edges[0]]).permute(0, 2, 1)
+        delta_x = (x[no_loop_edges[1]] - x[no_loop_edges[0]])
+        derivative = delta_y / (delta_x + eps)
+
+        H = torch_scatter.scatter_mean(src=derivative, index=no_loop_edges[0], dim=0)
+        return H
+
+    def _spatial_derivative_2(self, y, x, edges):
+
+        eps = 1e-8
+
+        no_loop_edges = edges[:, edges[0] != edges[1]]
+
+        # Approximate the derivative using the neighbors on each node of the grad
+        delta_y = (y[no_loop_edges[1]] - y[no_loop_edges[0]]).permute(0, 2, 1)
+        delta_x = (x[no_loop_edges[1]] - x[no_loop_edges[0]])
+        derivative = delta_y / (delta_x + eps)
+
+        H = torch_scatter.scatter_mean(src=derivative, index=no_loop_edges[0], dim=0)
+        return H
 
     def _get_symetric_matrix_from_unique_values(self, vals):
 
@@ -189,36 +286,37 @@ class GCNNDiagGaussianActor(nn.Module):
         d = int(d)
 
         bs, n = vals.shape[:2]
-        M = torch.zeros(bs, n, d, d, device=vals.device)
+        M = torch.zeros(bs, d, d, device=vals.device)
         i, j = torch.triu_indices(d, d)
-        M[:, :, i, j] = vals
-        M = M.permute(0, 1, 3, 2)
-        M[:, :, i, j] = vals
+        M[:, i, j] = vals
+        M = M.permute(0, 2, 1)
+        M[:, i, j] = vals
 
         return M
 
-    def _get_ns_loss(self, u_bar, P, u_prime_bar, edges):
+    def _get_ns_loss(self, u_bar, pos, P, u_prime_bar, edges):
 
-        #FIXME: Take car of removing the self_loops if they exist
+        #FIXME: Take care of removing the self_loops if they exist
 
         device = u_prime_bar.device
-        d = u_bar.shape[-1]
+        d = self.gnn_action_dim
         rho = 1.184
         u_prime_bar_matrix = self._get_symetric_matrix_from_unique_values(u_prime_bar)
-        P_matrix = torch.eye(d, device=device)[None, None, ...] * P[..., None]
-        u_bar_matrix = u_bar[..., None, :].repeat(1, 1, d, 1)
+        P_matrix = torch.eye(d, device=device)[None, ...] * P[..., None]
+        f = torch.zeros_like(u_bar)
+        u_bar_matrix = u_bar[..., None, :].repeat(1, d, 1)
+        pos_matrix = pos[..., None, :].repeat(1, d, 1)
 
         # TODO: Fix derivative computation
         # https://github.com/ZichaoLong/aTEAM/blob/master/nn/modules/Interpolation.py
         #import pdb
         #pdb.set_trace()
 
-        dxj_u_bar_matrix = self._spatial_derivative(u_bar_matrix, edges)
-        dxj_forces_matrix = self._spatial_derivative(-(P_matrix + rho * u_prime_bar_matrix), edges)
+        dxj_u_bar_matrix = self._spatial_derivative(u_bar_matrix, pos_matrix, edges)
+        dxj_forces_matrix = self._spatial_derivative(-(P_matrix + rho * u_prime_bar_matrix), pos_matrix, edges)
 
-        rans_loss = (rho * u_bar_matrix * dxj_u_bar_matrix - dxj_forces_matrix).abs().mean(dim=[0, 1]).sum()
-
-        #import pdb
-        #pdb.set_trace()
+        RANS = (rho * u_bar_matrix * dxj_u_bar_matrix - dxj_forces_matrix).sum(dim=-1)
+        #rans_loss = (RANS ** 2).sum(dim=-1).mean()
+        rans_loss = (RANS ** 2).sum(dim=-1).sqrt().mean()
 
         return rans_loss

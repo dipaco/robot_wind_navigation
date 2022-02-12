@@ -72,7 +72,7 @@ def _create_edge_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=n
     return trunk
 
 
-def create_mlp(in_dim, out_dim):
+def create_output_mlp(in_dim, out_dim):
     mlp = nn.Sequential(
         nn.Linear(in_dim, in_dim // 4), nn.BatchNorm1d(in_dim // 4), nn.ReLU(inplace=True),
         nn.Linear(in_dim // 4, in_dim // 16), nn.BatchNorm1d(in_dim // 16), nn.ReLU(inplace=True),
@@ -80,6 +80,21 @@ def create_mlp(in_dim, out_dim):
     )
 
     return mlp
+
+
+def create_mlp(input_dim, output_dim, hidden_dim, hidden_depth, output_mod=None):
+    if hidden_depth == 0:
+        mods = [nn.Linear(input_dim, output_dim)]
+    else:
+        mods = [nn.Linear(input_dim, hidden_dim), nn.ReLU(inplace=True)]
+        for i in range(hidden_depth - 1):
+            mods += [nn.Linear(hidden_dim, hidden_dim), nn.ReLU(inplace=True)]
+        mods.append(nn.Linear(hidden_dim, output_dim))
+
+    if output_mod is not None:
+        mods.append(output_mod)
+    trunk = nn.Sequential(*mods)
+    return trunk
 
 
 def get_formation_conf(formation_type):

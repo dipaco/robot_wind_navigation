@@ -205,7 +205,11 @@ class TurbulentFormationEnv(gym.Env):
         P_t = self._get_pressure(v_wr)
 
         # Observations are a flatten version of the state matrix
-        v_wr_sensor = self._real_wind_to_sensor(v_wr)
+        if self.config.measurement_noise:
+            v_wr_sensor = self._real_wind_to_sensor(v_wr)
+        else:
+            v_wr_sensor = v_wr
+
         # computes the squared wind magnitude
         v_wr_mag = (v_wr_sensor ** 2).sum(axis=-1, keepdims=True)
         observation = np.concatenate([
@@ -335,7 +339,11 @@ class TurbulentFormationEnv(gym.Env):
         self.position_error[:, self.iter] = self._compute_position_error()
 
         # Observations are a flatten version of the state matrix
-        v_wr_sensor = self._real_wind_to_sensor(v_wr)
+        if self.config.measurement_noise:
+            v_wr_sensor = self._real_wind_to_sensor(v_wr)
+        else:
+            v_wr_sensor = v_wr
+
         v_wr_mag = (v_wr_sensor ** 2).sum(axis=-1, keepdims=True)
         observation = np.concatenate([self.p, self.vel, v_wr_sensor, P_d, v_wr_mag, S_error], axis=1).reshape(-1)
         # observation = self.p.reshape(-1)
