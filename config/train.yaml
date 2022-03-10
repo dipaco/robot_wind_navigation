@@ -12,13 +12,13 @@ time_to_run: 83880 # about 11:45 hours
 resume: true
 replay_buffer_capacity: ${num_train_steps}
 base_lr: 1e-3
-decay_step_size: 5e4
+decay_step_size: 1e5
 decay_factor: 0.71
 
 num_seed_steps: 5000
 
-eval_frequency: 50000
-num_eval_episodes: 20
+eval_frequency: 100000
+num_eval_episodes: 10
 
 device: cuda
 
@@ -62,7 +62,16 @@ formation_params:
     init_points: in_formation               # [random, in_formation]
     formation_contro_type: simple           # [simple, magnus]
     num_nodes: 3
-    formation_type: 0   #   [0-> "small triangle, nodes=3", 1 -> "Triangle, nodes=21", 2 -> "Platoon", 3 -> "grid 3x3", 4 -> "grid 4x4"]
+    #   [
+    #       0 -> "small triangle, nodes=3",
+    #       1 -> "Triangle, nodes=21",
+    #       2 -> "grid 2x2"
+    #       3 -> "grid 3x3"
+    #       4 -> "grid 4x4"
+    #       5 -> "grid 5x5"
+    #       6 -> "Platoon", 3 -> "grid 3x3",
+    #   ]
+    formation_type: 0
 
 # hydra configuration
 hydra:

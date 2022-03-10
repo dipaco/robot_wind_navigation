@@ -304,12 +304,14 @@ def main(cfg):
     workspace = Workspace(cfg)
     workspace.run()
 
-    if workspace.exit_code == 3:
-        return workspace.exit_code
+    global EXIT_CODE
+    EXIT_CODE = workspace.exit_code
 
 
 if __name__ == '__main__':
-    exit_code = main()
+    global EXIT_CODE
+    EXIT_CODE = None
+    main()
 
-    if exit_code == 3:
-        sys.exit(exit_code)
+    if EXIT_CODE == 3:
+        sys.exit(EXIT_CODE)

@@ -549,7 +549,7 @@ class TurbulentFormationEnv(gym.Env):
                 self.vf_handle = self.ax.quiver(x, y, v[:, 0], v[:, 1], color=[0.4, 0.83, 0.97, 0.85], scale=200)
 
             # plots the action arrows on top of the robots
-            self.action_arrow_handle = self.ax.quiver(self.p[:, 0], self.p[:, 1], self.last_action[:, 0], self.last_action[:, 1], color='orange', scale=200)
+            #self.action_arrow_handle = self.ax.quiver(self.p[:, 0], self.p[:, 1], self.last_action[:, 0], self.last_action[:, 1], color='orange', scale=200)
 
             self.fig.canvas.draw()
             self.fig.canvas.flush_events()
@@ -567,14 +567,14 @@ class TurbulentFormationEnv(gym.Env):
             if self.config.turbulence_model is not None:
                 self.vf_handle.set_UVC(v[:, 0], v[:, 1])
 
-            for i in range(self.last_action.shape[0]):
+            '''for i in range(self.last_action.shape[0]):
                 #self.action_arrow_handle[i].clear()
                 #self.action_arrow_handle.append(self.ax.quiver(self.p[i, 0], self.p[i, 1], self.last_action[i, 0], self.last_action[i, 1], color='orange', scale=200))
 
                 self.action_arrow_handle.remove()
                 #self.action_arrow_handle.XY = self.p.copy()
                 #self.action_arrow_handle.set_UVC(self.last_action[:, 0], self.last_action[:, 1])
-                self.action_arrow_handle = self.ax.quiver(self.p[:, 0], self.p[:, 1], self.last_action[:, 0], self.last_action[:, 1], color='orange', scale=200)
+                self.action_arrow_handle = self.ax.quiver(self.p[:, 0], self.p[:, 1], self.last_action[:, 0], self.last_action[:, 1], color='orange', scale=200)'''
 
             self.fig.canvas.draw()
             self.fig.canvas.flush_events()
@@ -600,7 +600,15 @@ class TurbulentFormationEnv(gym.Env):
             self.formation_ref = np.array(
                 [[0.0, 0.0], [0.0, 1.0], [0.0, 2.0], [0.0, 3.0], [0.0, 4], [0.0, 5.0], [1, 0], [1, 1], [1, 2], [1, 3],
                  [1, 4], [2, 0], [2, 1], [2, 2], [2, 3], [3, 0], [3, 1], [3, 2], [4, 0], [4, 1], [5, 0]]) * 1.5
-        elif self.config.formation_params.formation_type == 2:    # platoon
+        elif self.config.formation_params.formation_type == 2:  # grid 2x2
+            pass
+        elif self.config.formation_params.formation_type == 3:  # grid 3x3
+            pass
+        elif self.config.formation_params.formation_type == 4:  # grid 4x4
+            pass
+        elif self.config.formation_params.formation_type == 5:  # grid 5x5
+            pass
+        elif self.config.formation_params.formation_type == 6:    # platoon
             self.G.add_edges_from(
                 [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7), (7, 8), (8, 9), (9, 10), (10, 11), (11, 12),
                  (12, 13), (13, 14), (14, 15), (15, 16), (16, 17), (17, 18), (18, 19), (19, 20)])
@@ -608,10 +616,6 @@ class TurbulentFormationEnv(gym.Env):
                 [[0.0, 0.0], [0.5, 0.5], [1.0, 1.0], [1.5, 1.5], [2, 2], [2.5, 2.5], [3, 3], [3.5, 3.5], [4, 4],
                  [4.5, 4.5], [5, 5], [5.5, 5.5], [6, 6], [6.5, 6.5], [7, 7], [7.5, 7.5], [8, 8], [8.5, 8.5], [9, 9],
                  [9.5, 9.5], [10, 10]])
-        elif self.config.formation_params.formation_type == 3:  # grid 3x3
-            pass
-        elif self.config.formation_params.formation_type == 4:  # grid 4x4
-            pass
         else:
             raise ValueError(f'Invalid formation type {self.config.formation_params.formation_type}. Tyr [0-> "small triangle, "1 -> "Triangle", 2 -> "Platoon"].')
 
