@@ -6,7 +6,7 @@ env: cheetah_run
 # this needs to be specified manually
 experiment: test_exp
 
-num_train_steps: 1e6
+num_train_steps: 2e6
 save_steps: 50000
 time_to_run: 83880 # about 11:45 hours
 resume: true
