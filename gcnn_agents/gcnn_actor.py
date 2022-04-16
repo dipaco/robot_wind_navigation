@@ -70,7 +70,7 @@ class SquashedNormal(pyd.transformed_distribution.TransformedDistribution):
 class GCNNDiagGaussianActor(nn.Module):
     """torch.distributions implementation of an diagonal Gaussian policy."""
     def __init__(self, num_nodes, obs_dim, action_dim, hidden_dim, hidden_depth,
-                 log_std_bounds, use_ns_regularization, conv_type, input_batch_norm, formation_type, ignore_neighbors):
+                 log_std_bounds, use_ns_regularization, conv_type, input_batch_norm, formation_type, ignore_neighbors, graph_type):
         super().__init__()
 
         self.num_nodes = num_nodes
@@ -85,6 +85,7 @@ class GCNNDiagGaussianActor(nn.Module):
         self.formation_type = formation_type
         self.use_output_mlp = False
         self.ignore_neighbors = ignore_neighbors
+        self.graph_type = graph_type
 
         assert self.obs_dim % self.num_nodes == 0, f'The number of robots (nodes={self.num_nodes})' \
                                               f' do not divide the observation space size ({self.obs_dim}.)'
@@ -139,9 +140,21 @@ class GCNNDiagGaussianActor(nn.Module):
         if self.ignore_neighbors:
             edges = torch.stack(2 * [torch.arange(self.num_nodes, device=input_features.device)]).long()
         else:
-            edges = to_undirected(torch.tensor([e for e in self.G.edges], device=input_features.device).long().T)
+            if self.graph_type == 'formation':
+                G = self.G
+            elif self.graph_type == 'complete':
+                G = nx.complete_graph(self.num_nodes)
+            elif self.graph_type == 'knn':
+                G = nx.complete_graph(self.num_nodes)
+                #G.edge[1][2]['weight'] = 3
+                #G = nx.k_nearest_neighbors(G, weight='weight')
+            else:
+                raise ValueError(f'Wrong graph type: {self.graph_type}. Provide a value in [formation, complete, knn]')
+
+            edges = to_undirected(torch.tensor([e for e in G.edges], device=input_features.device).long().T)
             if self.conv_type == 'edge':
                 edges, _ = add_self_loops(edges, num_nodes=self.num_nodes)
+
         edges = torch.cat([edges + i * self.num_nodes for i in range(bs)], dim=-1)
 
         if self.use_ns_regularization:

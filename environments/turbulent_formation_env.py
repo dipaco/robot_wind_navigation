@@ -321,18 +321,18 @@ class TurbulentFormationEnv(gym.Env):
             #reward += -0.1 * (S_error**2).mean()
             wg = self.config.RL_parameters.error_mag_reward_weight
             #reward += - wg * (np.linalg.norm(S_error, axis=-1)).mean()
-            reward += - wg * (S_error**2).sum(axis=-1).mean()
+            reward += - wg * (S_error**2).sum(axis=-1)
 
         # Cosine similarity reward
         if self.config.RL_parameters.use_cosine_reward:
             wg = self.config.RL_parameters.cosine_reward_weight
-            reward += wg * ((normalize(self.vel, axis=-1) * normalize(vel_pred, axis=-1)).sum(axis=-1) - 1.0).mean()
+            reward += wg * ((normalize(self.vel, axis=-1) * normalize(vel_pred, axis=-1)).sum(axis=-1) - 1.0)
 
         # Minimum energy reward
         if self.config.RL_parameters.use_action_mag_reward:
             wg = self.config.RL_parameters.action_mag_reward_weight
             #reward += - wg * np.linalg.norm(action, axis=-1).mean()
-            reward += - wg * (action**2).sum(axis=-1).mean()
+            reward += - wg * (action**2).sum(axis=-1)
 
         # Computes the formation error
         self.formation_error[:, self.iter] = self._compute_formation_error()
@@ -354,7 +354,8 @@ class TurbulentFormationEnv(gym.Env):
 
         self.iter += 1
         if np.any(bounds_cond):
-            reward += -10.0
+
+            reward[bounds_cond] += -10.0
 
         if self.iter >= self._max_episode_steps:
             done = True
@@ -537,9 +538,9 @@ class TurbulentFormationEnv(gym.Env):
             self.ax.set_aspect('equal')
 
             # Draw robots
-            self.robot_handle = self.ax.scatter(self.p[:, 0], self.p[:, 1], 20, 'black')
+            self.robot_handle = self.ax.scatter(self.p[:, 0], self.p[:, 1], 10, 'black')
 
-            self.goal_handle = self.ax.scatter(self.leader_goal[0], self.leader_goal[1], 20, 'red')
+            self.goal_handle = self.ax.scatter(self.leader_goal[0], self.leader_goal[1], 10, 'red')
 
             self.ax.set_title(title, fontsize=6)
 
@@ -686,7 +687,7 @@ class TurbulentFormationEnv(gym.Env):
 
             ax.legend(loc='upper right', prop={'size': 6})
             ax.grid()
-            ax.set_ylim(0.2 * self.bounds[0], 0.6 * self.bounds[1])
+            ax.set_ylim(0.05 * self.bounds[0], 0.4 * self.bounds[1])
             ax.set_title(f'Position error')
             fig.savefig(os.path.join(results_folder, f'step_{step}_position_error.png'))
             plt.close(fig)

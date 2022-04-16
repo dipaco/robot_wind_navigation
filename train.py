@@ -19,7 +19,8 @@ sys.path.append(dist_package_folder)
 
 from video import VideoRecorder
 from logger import Logger
-from replay_buffer import ReplayBuffer
+#from replay_buffer import ReplayBuffer
+from multi_robot_replay_buffer import MultiRobotReplayBuffer
 from environments import TurbulentWindEnv, RandomWindEnv, TurbulentFormationEnv
 import matplotlib.pyplot as plt
 plt.switch_backend('agg')
@@ -90,9 +91,10 @@ class Workspace(object):
                              log_frequency=cfg.log_frequency,
                              agent=cfg.agent.name)
 
-        self.replay_buffer = ReplayBuffer(self.env.observation_space.shape,
+        self.replay_buffer = MultiRobotReplayBuffer(self.env.observation_space.shape,
                                           self.env.action_space.shape,
                                           int(cfg.replay_buffer_capacity),
+                                          self.cfg.formation_params.num_nodes,
                                           self.device)
 
         self.video_recorder = VideoRecorder(self.work_dir if cfg.save_video else None, fps=15)
@@ -140,7 +142,7 @@ class Workspace(object):
                 # Only records the first eval episode
                 if episode == 0:
                     self.video_recorder.record(self.env)
-                episode_reward += reward
+                episode_reward += reward.mean()
 
             average_episode_reward += episode_reward
             # Only records the first eval episode
@@ -226,10 +228,9 @@ class Workspace(object):
             # allow infinite bootstrap
             done = float(done)
             done_no_max = 0 if episode_step + 1 == self.env._max_episode_steps else done
-            episode_reward += reward
+            episode_reward += reward.mean()
 
-            self.replay_buffer.add(obs, action, reward, next_obs, done,
-                                   done_no_max)
+            self.replay_buffer.add(obs, action, reward, next_obs, done, done_no_max)
 
             obs = next_obs
             episode_step += 1

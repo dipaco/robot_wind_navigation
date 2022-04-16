@@ -36,7 +36,7 @@ seed: 1
 gnn_parameters:
     conv_type: edge # [node, edge]
     input_batch_norm: false
-    hidden_dim: 256
+    hidden_dim: 128
     ignore_neighbors: false
 
 # turbulence options
@@ -55,7 +55,7 @@ RL_parameters:
     use_cosine_reward: false
     cosine_reward_weight: 5.0
     use_action_mag_reward: true
-    action_mag_reward_weight: 0.01
+    action_mag_reward_weight: 0.005
 
 # Formation params
 formation_params:
@@ -72,6 +72,7 @@ formation_params:
     #       6 -> "Platoon", 3 -> "grid 3x3",
     #   ]
     formation_type: 0
+    graph_type: 'formation'                 # [formation, complete, knn]
 
 # hydra configuration
 hydra:

@@ -1,3 +1,5 @@
+import math
+
 import torch
 import torch.nn.functional as F
 import utils
@@ -14,7 +16,7 @@ class GCNNSACAgent(SACAgent):
                  ns_regularization_weight, decay_step_size=int(1e10), decay_factor=0.9):
         super().__init__(obs_dim, action_dim, action_range, device, critic_cfg, actor_cfg, discount, init_temperature,
                          alpha_lr, alpha_betas, actor_lr, actor_betas, actor_update_frequency, critic_lr, critic_betas,
-                         critic_tau, critic_target_update_frequency, batch_size, learnable_temperature)
+                         critic_tau, critic_target_update_frequency, batch_size // int(math.sqrt(num_nodes)), learnable_temperature)
 
         # set the learning rate scheduler
         self.actor_lr_scheduler = torch.optim.lr_scheduler.StepLR(self.actor_optimizer, step_size=decay_step_size, gamma=decay_factor)
@@ -55,7 +57,7 @@ class GCNNSACAgent(SACAgent):
         log_prob = dist.log_prob(next_action).view(bs, self.num_nodes, -1).sum(dim=-1)
         target_Q1, target_Q2 = self.critic_target(next_obs, next_action)
         target_V = torch.min(target_Q1, target_Q2) - self.alpha.detach() * log_prob
-        target_Q = reward.repeat(1, self.num_nodes) + (not_done.repeat(1, self.num_nodes) * self.discount * target_V)
+        target_Q = reward + (not_done.repeat(1, self.num_nodes) * self.discount * target_V)
         target_Q = target_Q.detach()
 
         # get current Q estimates

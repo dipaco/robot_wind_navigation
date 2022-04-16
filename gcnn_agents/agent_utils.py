@@ -50,19 +50,19 @@ def _create_edge_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=n
     for i in range(num_layers):
         if i == 0:
             all_layers.append(
-                (gnn.EdgeConv(nn.Linear(in_features=2*in_dim, out_features=hidden_dim, bias=False), aggr='add'), 'x, edge_index -> x')
+                (gnn.EdgeConv(nn.Linear(in_features=2*in_dim, out_features=hidden_dim, bias=False), aggr='mean'), 'x, edge_index -> x')
             )
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
             all_layers.append(non_linearity(inplace=True))
         elif output_layer and i == num_layers - 1:
             all_layers.append(
-                (gnn.EdgeConv(nn.Linear(in_features=2*hidden_dim, out_features=out_dim, bias=False), aggr='add'),
+                (gnn.EdgeConv(nn.Linear(in_features=2*hidden_dim, out_features=out_dim, bias=False), aggr='mean'),
                  'x, edge_index -> x')
             )
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
         else:
             all_layers.append(
-                (gnn.EdgeConv(nn.Linear(in_features=2*hidden_dim, out_features=hidden_dim, bias=False), aggr='add'), 'x, edge_index -> x')
+                (gnn.EdgeConv(nn.Linear(in_features=2*hidden_dim, out_features=hidden_dim, bias=False), aggr='mean'), 'x, edge_index -> x')
             )
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
             all_layers.append(non_linearity(inplace=True))
@@ -115,7 +115,7 @@ def get_formation_conf(formation_type):
              (17, 13), (15, 16), (16, 17), (18, 15), (19, 16), (18, 19), (20, 18)])
     elif formation_type in range(2, 6):  # grid 2x2
         G = nx.grid_graph(dim=[formation_type, formation_type])
-        formation_ref = 0.5*np.array(G.nodes).astype(float)
+        formation_ref = np.array(G.nodes).astype(float) / (formation_type - 1)
         G = nx.relabel.relabel_nodes(G, mapping=dict(zip(G.nodes, range(formation_type**2))))
 
     elif formation_type == 6:    # platoon
