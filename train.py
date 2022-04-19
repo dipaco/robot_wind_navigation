@@ -223,7 +223,12 @@ class Workspace(object):
             if self.step >= self.cfg.num_seed_steps:
                 self.agent.update(self.replay_buffer, self.logger, self.step)
 
-            next_obs, reward, done, _ = self.env.step(action)
+            next_obs, reward, done, metrics_dict = self.env.step(action)
+
+            # log the training metrics
+            if (self.step + 1) % 10 == 0:
+                for k, v in metrics_dict.items():
+                    self.logger.log(f'train/{k}', v.mean(), self.step)
 
             # allow infinite bootstrap
             done = float(done)

@@ -321,18 +321,21 @@ class TurbulentFormationEnv(gym.Env):
             #reward += -0.1 * (S_error**2).mean()
             wg = self.config.RL_parameters.error_mag_reward_weight
             #reward += - wg * (np.linalg.norm(S_error, axis=-1)).mean()
-            reward += - wg * (S_error**2).sum(axis=-1)
+            control_error = (S_error ** 2).sum(axis=-1)
+            reward += - wg * control_error
 
         # Cosine similarity reward
         if self.config.RL_parameters.use_cosine_reward:
             wg = self.config.RL_parameters.cosine_reward_weight
-            reward += wg * ((normalize(self.vel, axis=-1) * normalize(vel_pred, axis=-1)).sum(axis=-1) - 1.0)
+            cos_error = ((normalize(self.vel, axis=-1) * normalize(vel_pred, axis=-1)).sum(axis=-1) - 1.0)
+            reward += wg * cos_error
 
         # Minimum energy reward
+        action_mag = (action ** 2).sum(axis=-1)
         if self.config.RL_parameters.use_action_mag_reward:
             wg = self.config.RL_parameters.action_mag_reward_weight
             #reward += - wg * np.linalg.norm(action, axis=-1).mean()
-            reward += - wg * (action**2).sum(axis=-1)
+            reward += - wg * action_mag
 
         # Computes the formation error
         self.formation_error[:, self.iter] = self._compute_formation_error()
@@ -362,7 +365,12 @@ class TurbulentFormationEnv(gym.Env):
         else:
             done = False
 
-        return observation, reward, done, {}
+        metrics_dict = {
+            'control_error': control_error,
+            'action_mag': action_mag,
+        }
+
+        return observation, reward, done, metrics_dict
 
     def _simulate_second_order(self, p, vel, dt, action, v_wr=None):
 
