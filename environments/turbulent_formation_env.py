@@ -498,6 +498,113 @@ class TurbulentFormationEnv(gym.Env):
         S_error = S_r - S_p
         return S_error
 
+    def get_render_args(self):
+
+        args_dict = {}
+
+        # Computes the disturbance vector field on a regular grid, for visualization
+        if self.config.turbulence_model is not None:
+            vf_res = 30
+            x, y = np.meshgrid(
+                np.linspace(self.bounds[0], self.bounds[1], vf_res),
+                np.linspace(self.bounds[2], self.bounds[3], vf_res)
+            )
+            x = x.reshape(-1)
+            y = y.reshape(-1)
+            v = self.get_disturbance(np.stack([x, y], axis=1))
+        else:
+            v = None
+
+        args_dict['use_turbulence_model'] = self.config.turbulence_model
+        args_dict['wind_field_x_coord'] = x.copy()
+        args_dict['wind_field_y_coord'] = x.copy()
+        args_dict['wind_field'] = v.copy()
+
+        # Computes the plot title text
+        title = ''
+        for i in range(self.last_action.shape[0]):
+            sp_x = ' ' if self.last_action[i, 0] >= 0 else ''
+            sp_y = ' ' if self.last_action[i, 1] >= 0 else ''
+            title = f'{title} | Act. Node {i}=[{sp_x}{self.last_action[i, 0]:.2f}, {sp_y}{self.last_action[i, 1]:.2f}]'
+        args_dict['title'] = title
+
+        args_dict['fig_aspect_ratio'] = 18.0 / 9.0  # Aspect ratio of video.
+        args_dict['fig_pixel_height'] = self.config.frame_height
+        args_dict['dpi'] = 150
+        args_dict['bounds'] = self.bounds.copy()
+        args_dict['position'] = self.p.copy()
+        args_dict['leader_goal'] = self.leader_goal.copy()
+
+        return args_dict
+
+    @staticmethod
+    def render_async(args):
+        # Computes the disturbance vector field on a regular grid, for visualization
+        if args['use_turbulence_model'] is not None:
+            x = args['wind_field_x_coord']
+            y = args['wind_field_y_coord']
+            v = args['wind_field']
+
+        # Computes the plot title text
+        title = args['title']
+
+        # Figure aspect ratio.
+        fig_aspect_ratio = args['fig_aspect_ratio']  # Aspect ratio of video.
+        fig_pixel_height = args['fig_pixel_height']  # 540  # Height of video in pixels.
+        dpi = args['dpi']  # Pixels per inch (affects fonts and apparent size of inch-scale objects).
+
+        # Set the figure to obtain aspect ratio and pixel size.
+        fig_w = fig_pixel_height / dpi * fig_aspect_ratio  # inches
+        fig_h = fig_pixel_height / dpi  # inches
+        fig, ax = plt.subplots(1, 1, figsize=(fig_w, fig_h), constrained_layout=True, dpi=dpi)
+        ax.set_xlabel('x')
+        ax.set_ylabel('y')
+
+        bounds = args['bounds']
+
+        data_xlim = [bounds[0] - 0.5, bounds[1] + 0.5]
+        data_ylim = [bounds[2] - 0.5, bounds[3] + 0.5]
+
+        # Set axes limits which display the workspace nicely.
+        ax.set_xlim(data_xlim[0], data_xlim[1])
+        ax.set_ylim(data_ylim[0], data_ylim[1])
+
+        # Setting axis equal should be redundant given figure size and limits,
+        # but gives a somewhat better interactive resizing behavior.
+        ax.set_aspect('equal')
+
+        # Draw robots
+        p = args['position']
+        robot_handle = ax.scatter(p[:, 0], p[:, 1], 10, 'black')
+
+        leader_goal = args['leader_goal']
+        goal_handle = ax.scatter(leader_goal[0], leader_goal[1], 10, 'red')
+
+        ax.set_title(title, fontsize=6)
+
+        # Draw the disturbance vector field
+        # NOTE: For what ever the reason the bigger the `scale` the smaller the arrows are
+        if args['use_turbulence_model'] is not None:
+            vf_handle = ax.quiver(x, y, v[:, 0], v[:, 1], color=[0.4, 0.83, 0.97, 0.85], scale=200)
+
+        # plots the action arrows on top of the robots
+        # self.action_arrow_handle = self.ax.quiver(self.p[:, 0], self.p[:, 1], self.last_action[:, 0], self.last_action[:, 1], color='orange', scale=200)
+
+        fig.canvas.draw()
+        fig.canvas.flush_events()
+
+        # TODO: Add beautiful renderings for wind!
+
+        #self.fig.canvas.draw()
+        #self.fig.canvas.flush_events()
+
+        image_from_plot = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+        image_from_plot = image_from_plot.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+
+        plt.close(fig)
+
+        return image_from_plot
+
     def render(self, mode='rgb_array'):
 
         # Computes the disturbance vector field on a regular grid, for visualization

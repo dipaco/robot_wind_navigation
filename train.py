@@ -126,7 +126,7 @@ class Workspace(object):
         for episode in range(self.cfg.num_eval_episodes):
             obs = self.env.reset()
             self.agent.reset()
-            self.video_recorder.init(enabled=(episode == 0))
+            self.video_recorder.init(enabled=(episode == 0), async_recorder=True)
             done = False
             episode_reward = 0
             while not done:
