@@ -49,16 +49,19 @@ class TurbulentFormationEnv(gym.Env):
         # env shape   reference formation points
         self.bounds = np.array([-5.0, 5.0, -5.0, 5.0])  # xmin, xmax, ymin, ymax
 
-        self.MAX_ROBOT_ACCELERATION = 10
+        self.MAX_WIND_SIMULATION_SPEED = 15.0
+        self.MAX_ROBOT_ACCELERATION = 0.5 * self.rho * self.c_d * 4 * np.pi * (self.robot_radius ** 2) * (self.MAX_WIND_SIMULATION_SPEED ** 2) / self.m
 
         # Team parameters and initializations
         self.n_agents = self.config.formation_params.num_nodes
 
-        # state dimension
-        self.state_dim = 10
-
         # action dim
         self.action_dim = 2
+
+        # state dimension
+        self.state_dim = 3 * self.action_dim
+        if self.config.use_wind_pressure_sensors:
+            self.state_dim += self.action_dim + 2 # 2 -> pressure and wind magnitude
 
         self.G = None
         self.formation_ref = None
@@ -193,28 +196,35 @@ class TurbulentFormationEnv(gym.Env):
         elif self.config.turbulence_model == 'NS':
             self._setup_NS_turbulence()
 
-        # Get the wind velocity at the query points
-        if self.config.turbulence_model is not None:
-            v_we = self.get_disturbance(self.p)
-            # Velocity of the wind with respect to the robot
-            v_wr = v_we - self.vel
+        if self.config.use_wind_pressure_sensors:
+
+            # Get the wind velocity at the query points
+            if self.config.turbulence_model is not None:
+                v_we = self.get_disturbance(self.p)
+                # Velocity of the wind with respect to the robot
+                v_wr = v_we - self.vel
+            else:
+                v_wr = np.zeros_like(self.vel)
+
+            # Get the total pressure
+            P_t = self._get_pressure(v_wr)
+
+            # Observations are a flatten version of the state matrix
+            if self.config.measurement_noise:
+                v_wr_sensor = self._real_wind_to_sensor(v_wr)
+            else:
+                v_wr_sensor = v_wr
+
+            # computes the squared wind magnitude
+            v_wr_mag = (v_wr_sensor ** 2).sum(axis=-1, keepdims=True)
+
+            observation = np.concatenate([
+                self.p, self.vel, v_wr_sensor, P_t, v_wr_mag, np.zeros([self.n_agents, self.action_dim])
+            ], axis=1).reshape(-1)
         else:
-            v_wr = np.zeros_like(self.vel)
-
-        # Get the total pressure
-        P_t = self._get_pressure(v_wr)
-
-        # Observations are a flatten version of the state matrix
-        if self.config.measurement_noise:
-            v_wr_sensor = self._real_wind_to_sensor(v_wr)
-        else:
-            v_wr_sensor = v_wr
-
-        # computes the squared wind magnitude
-        v_wr_mag = (v_wr_sensor ** 2).sum(axis=-1, keepdims=True)
-        observation = np.concatenate([
-            self.p, self.vel, v_wr_sensor, P_t, v_wr_mag, np.zeros([self.n_agents, self.action_dim])
-        ], axis=1).reshape(-1)
+            observation = np.concatenate([
+                self.p, self.vel, np.zeros([self.n_agents, self.action_dim])
+            ], axis=1).reshape(-1)
 
         return observation
 
@@ -278,7 +288,7 @@ class TurbulentFormationEnv(gym.Env):
         #acc[0, :] = 0.5 * self.K_p * (self.leader_goal - self.p[0, :]) + self.K_d * (leader_vel - self.vel[0, :])
         acc[0, :] = self.K_p * (self.leader_goal - self.p[0, :]) + self.K_d * (leader_vel - self.vel[0, :])
 
-        # Applies the formation control
+        # Applies the PD control
         for i in range(1, self.n_agents):
             if self.config.formation_params.formation_contro_type == 'simple':
                 p_d = self.leader_goal + self.formation_ref[i, :]
@@ -311,8 +321,6 @@ class TurbulentFormationEnv(gym.Env):
         # Simulate dynamics assuming no wind
         p_pred, vel_pred = self._simulate_second_order(self.p_prev, self.vel_prev, self.dt, acc - action)
 
-        P_d = self._get_pressure(v_wr)
-
         #S_error = self.compute_state_error(self.p, self.vel, p_pred, vel_pred)
         S_error = self.vel - vel_pred
 
@@ -341,15 +349,20 @@ class TurbulentFormationEnv(gym.Env):
         self.formation_error[:, self.iter] = self._compute_formation_error()
         self.position_error[:, self.iter] = self._compute_position_error()
 
-        # Observations are a flatten version of the state matrix
-        if self.config.measurement_noise:
-            v_wr_sensor = self._real_wind_to_sensor(v_wr)
-        else:
-            v_wr_sensor = v_wr
+        if self.config.use_wind_pressure_sensors:
+            P_d = self._get_pressure(v_wr)
 
-        v_wr_mag = (v_wr_sensor ** 2).sum(axis=-1, keepdims=True)
-        observation = np.concatenate([self.p, self.vel, v_wr_sensor, P_d, v_wr_mag, S_error], axis=1).reshape(-1)
-        # observation = self.p.reshape(-1)
+            # Observations are a flatten version of the state matrix
+            if self.config.measurement_noise:
+                v_wr_sensor = self._real_wind_to_sensor(v_wr)
+            else:
+                v_wr_sensor = v_wr
+
+            v_wr_mag = (v_wr_sensor ** 2).sum(axis=-1, keepdims=True)
+            observation = np.concatenate([self.p, self.vel, v_wr_sensor, P_d, v_wr_mag, S_error], axis=1).reshape(-1)
+            # observation = self.p.reshape(-1)
+        else:
+            observation = np.concatenate([self.p, self.vel, S_error], axis=1).reshape(-1)
 
         # check if any robot is out of the working space. If it is the case creates a big negative reward
         bounds_cond = (self.p[:, 0] < self.bounds[0]) | (self.p[:, 0] > self.bounds[1]) | (

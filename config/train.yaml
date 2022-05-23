@@ -48,6 +48,7 @@ turbulence_base_folder: /mnt/beegfs/data/diego/turbulence/
 use_ns_regularization: false
 ns_regularization_weight: 1.0
 measurement_noise: true
+use_wind_pressure_sensors: true
 
 RL_parameters:
     use_error_mag_reward: true
