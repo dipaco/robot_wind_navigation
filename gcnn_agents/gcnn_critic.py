@@ -7,6 +7,7 @@ from torch import nn
 from .agent_utils import create_gcnn, create_mlp, create_output_mlp, zero_weight_init
 from torch_geometric import nn as gnn
 from torch_geometric.utils import to_undirected, add_self_loops
+from torch_cluster import knn
 import torch.nn.functional as F
 
 import utils
@@ -105,6 +106,7 @@ class GCNNDoubleQCritic(nn.Module):
         ], dim=-1)
 
         input_features = obs_action.view(bs * self.num_nodes, -1)
+        batch_idx = torch.arange(bs, device=input_features.device).view(-1, 1).repeat(1, self.num_nodes).view(-1)
 
         # FIXME: This can be definitely done better using the Batch Class from torch_geometric
         if self.ignore_neighbors:
@@ -112,17 +114,24 @@ class GCNNDoubleQCritic(nn.Module):
         else:
             if self.graph_type == 'formation':
                 G = self.G
+                edges = to_undirected(torch.tensor([e for e in G.edges], device=input_features.device).long().T)
             elif self.graph_type == 'complete':
                 G = nx.complete_graph(self.num_nodes)
+                edges = to_undirected(torch.tensor([e for e in G.edges], device=input_features.device).long().T)
             elif self.graph_type == 'knn':
-                G = nx.complete_graph(self.num_nodes)
-                # G.edge[1][2]['weight'] = 3
-                # G = nx.k_nearest_neighbors(G, weight='weight')
+
+                r_th = 0.2
+                robot_loc = input_features[:, :2]
+                neighbor_edges = knn(robot_loc, robot_loc, k=self.num_nodes, batch_x=batch_idx, batch_y=batch_idx)
+                idx_neighors = (robot_loc[neighbor_edges[0]] - robot_loc[neighbor_edges[1]]).norm(dim=-1) < r_th
+                edges = neighbor_edges[:, idx_neighors]
+
+                G = nx.Graph()
+                G.add_edges_from(neighbor_edges)
             else:
                 raise ValueError(f'Wrong graph type: {self.graph_type}. Provide a value in [formation, complete, knn]')
 
-            edges = to_undirected(torch.tensor([e for e in G.edges], device=input_features.device).long().T)
-            if self.conv_type == 'edge':
+            if self.conv_type == 'edge' and self.graph_type != 'knn':
                 edges, _ = add_self_loops(edges, num_nodes=self.num_nodes)
 
         edges = torch.cat([edges + i * self.num_nodes for i in range(bs)], dim=-1)

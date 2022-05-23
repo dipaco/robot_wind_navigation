@@ -9,10 +9,39 @@ from torch_geometric import nn as gnn
 def create_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=nn.ReLU, norm=False, conv_type='node', output_layer=True):
     if conv_type == 'node':
         return _create_node_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity, norm, output_layer)
-    if conv_type == 'edge':
+    elif conv_type == 'edge':
         return _create_edge_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity, norm, output_layer)
+    elif conv_type == 'attention':
+        return _create_attention_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity, norm, output_layer)
     else:
         raise ValueError(f'Wrong Graph Convolution type: {conv_type}. Try [node, edge].')
+
+
+def _create_attention_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=nn.ReLU, norm=True, output_layer=True):
+    all_layers = []
+    num_layers = hidden_depth + 2 if output_layer else hidden_depth + 1
+    for i in range(num_layers):
+        if i == 0:
+            all_layers.append(
+                (gnn.GATConv(in_channels=in_dim, out_channels=hidden_dim // 4, heads=4, bias=False), 'x, edge_index -> x')
+            )
+            if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
+            all_layers.append(non_linearity(inplace=True))
+        elif output_layer and i == num_layers - 1:
+            all_layers.append(
+                (gnn.GATConv(in_channels=hidden_dim, out_channels=out_dim, heads=1, bias=False), 'x, edge_index -> x')
+            )
+            if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
+        else:
+            all_layers.append(
+                (gnn.GATConv(in_channels=hidden_dim, out_channels=hidden_dim // 4, heads=4, bias=False), 'x, edge_index -> x')
+            )
+            if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
+            all_layers.append(non_linearity(inplace=True))
+
+    trunk = gnn.Sequential('x, edge_index', all_layers)
+
+    return trunk
 
 
 def _create_node_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=nn.ReLU, norm=True, output_layer=True):
@@ -115,7 +144,7 @@ def get_formation_conf(formation_type):
              (17, 13), (15, 16), (16, 17), (18, 15), (19, 16), (18, 19), (20, 18)])
     elif formation_type in range(2, 6):  # grid 2x2
         G = nx.grid_graph(dim=[formation_type, formation_type])
-        formation_ref = np.array(G.nodes).astype(float) / (formation_type - 1)
+        formation_ref = np.array(G.nodes).astype(float) / 2.0 # / (formation_type - 1)
         G = nx.relabel.relabel_nodes(G, mapping=dict(zip(G.nodes, range(formation_type**2))))
 
     elif formation_type == 6:    # platoon
