@@ -530,7 +530,7 @@ class TurbulentFormationEnv(gym.Env):
 
         args_dict['use_turbulence_model'] = self.config.turbulence_model
         args_dict['wind_field_x_coord'] = x.copy()
-        args_dict['wind_field_y_coord'] = x.copy()
+        args_dict['wind_field_y_coord'] = y.copy()
         args_dict['wind_field'] = v.copy()
 
         # Computes the plot title text
