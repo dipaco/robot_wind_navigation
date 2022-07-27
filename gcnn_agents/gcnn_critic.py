@@ -45,26 +45,31 @@ class GCNNDoubleQCritic(nn.Module):
 
         # create all the convolutional layers
         gnn_obs_dim = self.obs_dim // self.num_nodes
-        gnn_action_dim = self.action_dim // self.num_nodes
+        self.gnn_action_dim = self.action_dim // self.num_nodes
+
+        #NOTE: we do not pass the global position to the network
+        # we add gnn_action_dim to indicate that we are removing dimensions from the observation space
+        # but adding the action dimension to the Q network's input
+        trunk_input_size = (gnn_obs_dim - self.gnn_action_dim) + self.gnn_action_dim
 
         if self.use_output_mlp:
             if self.ignore_neighbors:
-                self.Q1 = create_mlp(gnn_obs_dim + gnn_action_dim, 1, self.hidden_dim, self.hidden_depth)
-                self.Q2 = create_mlp(gnn_obs_dim + gnn_action_dim, 1, self.hidden_dim, self.hidden_depth)
+                self.Q1 = create_mlp(trunk_input_size, 1, self.hidden_dim, self.hidden_depth)
+                self.Q2 = create_mlp(trunk_input_size, 1, self.hidden_dim, self.hidden_depth)
             else:
-                self.Q1 = create_gcnn(gnn_obs_dim + gnn_action_dim, 1, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type, output_layer=False)
-                self.Q2 = create_gcnn(gnn_obs_dim + gnn_action_dim, 1, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type, output_layer=False)
+                self.Q1 = create_gcnn(trunk_input_size, 1, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type, output_layer=False)
+                self.Q2 = create_gcnn(trunk_input_size, 1, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type, output_layer=False)
 
             # FIXME: (dipaco) I am unsure if this actually works. I think the dimensions for the output mlp are not right
             self.mlp_Q1 = create_output_mlp(self.hidden_dim, 1)
             self.mlp_Q2 = create_output_mlp(self.hidden_dim, 1)
         else:
             if self.ignore_neighbors:
-                self.Q1 = create_mlp(gnn_obs_dim + gnn_action_dim, 1, self.hidden_dim, self.hidden_depth)
-                self.Q2 = create_mlp(gnn_obs_dim + gnn_action_dim, 1, self.hidden_dim, self.hidden_depth)
+                self.Q1 = create_mlp(trunk_input_size, 1, self.hidden_dim, self.hidden_depth)
+                self.Q2 = create_mlp(trunk_input_size, 1, self.hidden_dim, self.hidden_depth)
             else:
-                self.Q1 = create_gcnn(gnn_obs_dim + gnn_action_dim, 1, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type)
-                self.Q2 = create_gcnn(gnn_obs_dim + gnn_action_dim, 1, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type)
+                self.Q1 = create_gcnn(trunk_input_size, 1, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type)
+                self.Q2 = create_gcnn(trunk_input_size, 1, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type)
 
         '''# For MLP Q nets
         self.Q1 = nn.Sequential(
@@ -89,6 +94,8 @@ class GCNNDoubleQCritic(nn.Module):
 
     def forward(self, obs, action):
 
+        device = obs.device
+
         if self.input_batch_norm:
             # Normalize the input features
             obs = self.input_norm_layer_obs(obs)
@@ -106,40 +113,37 @@ class GCNNDoubleQCritic(nn.Module):
         ], dim=-1)
 
         input_features = obs_action.view(bs * self.num_nodes, -1)
-        batch_idx = torch.arange(bs, device=input_features.device).view(-1, 1).repeat(1, self.num_nodes).view(-1)
+        batch_idx = torch.arange(bs, device=device).view(-1, 1).repeat(1, self.num_nodes).view(-1)
 
         # FIXME: This can be definitely done better using the Batch Class from torch_geometric
         if self.ignore_neighbors:
-            edges = torch.stack(2 * [torch.arange(self.num_nodes, device=input_features.device)]).long()
+            edges = torch.stack(2 * [torch.arange(self.num_nodes, device=device)]).long()
         else:
             if self.graph_type == 'formation':
                 G = self.G
-                edges = to_undirected(torch.tensor([e for e in G.edges], device=input_features.device).long().T)
+                edges = to_undirected(torch.tensor([e for e in G.edges], device=device).long().T)
+                edges = torch.cat([edges + i * self.num_nodes for i in range(bs)], dim=-1)
             elif self.graph_type == 'complete':
                 G = nx.complete_graph(self.num_nodes)
-                edges = to_undirected(torch.tensor([e for e in G.edges], device=input_features.device).long().T)
+                edges = to_undirected(torch.tensor([e for e in G.edges], device=device).long().T)
+                edges = torch.cat([edges + i * self.num_nodes for i in range(bs)], dim=-1)
             elif self.graph_type == 'knn':
-
-                r_th = 0.2
+                r_th = 1.0
                 robot_loc = input_features[:, :2]
-                neighbor_edges = knn(robot_loc, robot_loc, k=self.num_nodes, batch_x=batch_idx, batch_y=batch_idx)
-                idx_neighors = (robot_loc[neighbor_edges[0]] - robot_loc[neighbor_edges[1]]).norm(dim=-1) < r_th
-                edges = neighbor_edges[:, idx_neighors]
-
-                G = nx.Graph()
-                G.add_edges_from(neighbor_edges)
+                edges = min_distance_graph(robot_loc, bs, self.num_nodes, r_th)
             else:
                 raise ValueError(f'Wrong graph type: {self.graph_type}. Provide a value in [formation, complete, knn]')
 
-            if self.conv_type == 'edge' and self.graph_type != 'knn':
+            if self.conv_type == 'edge':
                 edges, _ = add_self_loops(edges, num_nodes=self.num_nodes)
 
-        edges = torch.cat([edges + i * self.num_nodes for i in range(bs)], dim=-1)
-
         if self.ignore_neighbors:
-            net_args = (input_features, )
+            # we do not pass the global position to the network
+            net_args = (input_features[:, self.gnn_action_dim:], )
         else:
-            net_args = (input_features, edges)
+            # we do not pass the global position to the network
+            # we need to pass the edges when the networks is a GNN
+            net_args = (input_features[:, self.gnn_action_dim:], edges)
 
         q1 = self.Q1(*net_args)
         q2 = self.Q2(*net_args)

@@ -126,7 +126,7 @@ def create_mlp(input_dim, output_dim, hidden_dim, hidden_depth, output_mod=None)
     return trunk
 
 
-def get_formation_conf(formation_type):
+def get_formation_conf(formation_type, robot_distance=0.5):
     G = nx.Graph()
     if formation_type == 0:  # small triangle
         formation_ref = np.array([[0.0, 0.0], [1.0, 0.0], [1.0 / np.sqrt(2), 1.0 / np.sqrt(2)]])
@@ -144,7 +144,7 @@ def get_formation_conf(formation_type):
              (17, 13), (15, 16), (16, 17), (18, 15), (19, 16), (18, 19), (20, 18)])
     elif formation_type in range(2, 6):  # grid 2x2
         G = nx.grid_graph(dim=[formation_type, formation_type])
-        formation_ref = np.array(G.nodes).astype(float) / 2.0 # / (formation_type - 1)
+        formation_ref = np.array(G.nodes).astype(float) * robot_distance #/ 2.0 # / (formation_type - 1)
         G = nx.relabel.relabel_nodes(G, mapping=dict(zip(G.nodes, range(formation_type**2))))
 
     elif formation_type == 6:    # platoon
