@@ -32,6 +32,9 @@ class TurbulentFormationEnv(gym.Env):
         # setup the config options
         self.config = config
 
+        # controls whether we want to start the simulation from time=0 or from some offset
+        self.sim_time_offset = 15.0
+
         # Quadracopters info: https://funoffline.com/how-much-does-a-drone-weigh/
 
         # Wind simulation constants
@@ -50,7 +53,7 @@ class TurbulentFormationEnv(gym.Env):
         self.bounds = np.array([-5.0, 5.0, -5.0, 5.0])  # xmin, xmax, ymin, ymax
 
         self.MAX_WIND_SIMULATION_SPEED = 15.0
-        self.MAX_ROBOT_ACCELERATION = 0.5 * self.rho * self.c_d * 4 * np.pi * (self.robot_radius ** 2) * (self.MAX_WIND_SIMULATION_SPEED ** 2) / self.m
+        self.MAX_ROBOT_ACCELERATION = 0.5 * self.rho * self.c_d * self.area * (self.MAX_WIND_SIMULATION_SPEED ** 2) / self.m
 
         # Team parameters and initializations
         self.n_agents = self.config.formation_params.num_nodes
@@ -93,7 +96,7 @@ class TurbulentFormationEnv(gym.Env):
 
         # simulation time step and timing parameter
         self.iter = 0
-        self._max_episode_steps = 450
+        self._max_episode_steps = 900 # 450
 
         self.dt = 0.066
         self.done = False
@@ -140,7 +143,7 @@ class TurbulentFormationEnv(gym.Env):
             self.wind_sim_dict[self.selected_sim] = {}
 
             sim_folder = os.path.join(self.config.turbulence_base_folder, self.selected_sim)
-            # finds all ocurrences of the substring '_'
+            # finds all occurrences of the substring '_'
             idx_ = [i for i in range(len(self.selected_sim)) if self.selected_sim.startswith('_', i)]
             res_x, res_y = map(int, self.selected_sim[idx_[0] + 1:idx_[1]].split('x'))
 
@@ -153,7 +156,7 @@ class TurbulentFormationEnv(gym.Env):
             self.wind_sim_dict[self.selected_sim]['v'] = np.zeros((num_t, res_x, res_y, 2))
             self.wind_sim_dict[self.selected_sim]['p'] = np.zeros((num_t, res_x, res_y))
 
-            # TODO: This would probably be cleanr with a regular expression
+            # TODO: This would probably be cleaner with a regular expression
             init_token = 'state_phys_t'
             end_token = '.nc'
             self.wind_sim_dict[self.selected_sim]['t'] = np.array(
@@ -289,12 +292,12 @@ class TurbulentFormationEnv(gym.Env):
         acc[0, :] = self.K_p * (self.leader_goal - self.p[0, :]) + self.K_d * (leader_vel - self.vel[0, :])
 
         # Applies the PD control
-        for i in range(1, self.n_agents):
-            if self.config.formation_params.formation_contro_type == 'simple':
-                p_d = self.leader_goal + self.formation_ref[i, :]
-                v_d = [0, 0]
-                acc[i, :] = self.K_p * (p_d - self.p[i, :]) + self.K_d * (v_d - self.vel[i, :])
-            elif self.config.formation_params.formation_contro_type == 'magnus':
+        if self.config.formation_params.formation_contro_type == 'simple':
+            p_d = self.leader_goal + self.formation_ref
+            v_d = np.zeros_like(self.vel)
+            acc = self.K_p * (p_d - self.p) + self.K_d * (v_d - self.vel)
+        elif self.config.formation_params.formation_contro_type == 'magnus':
+            for i in range(1, self.n_agents):
                 for j in self.G.neighbors(i):
                     # Applies the formation control action
                     acc[i, :] += - self.K_p * ((self.p[i, :] - self.p[j, :]) + (self.formation_ref[i, :] - self.formation_ref[j, :])) - self.K_d * (self.vel[i, :] - self.vel[j, :])
@@ -350,13 +353,19 @@ class TurbulentFormationEnv(gym.Env):
         self.position_error[:, self.iter] = self._compute_position_error()
 
         if self.config.use_wind_pressure_sensors:
-            P_d = self._get_pressure(v_wr)
+
+            # gets the wind measurement after applying the action
+            new_v_we = self.get_disturbance(self.p)
+            # Velocity of the wind with respect to the robot
+            new_v_wr = new_v_we - self.vel
+
+            P_d = self._get_pressure(new_v_wr)
 
             # Observations are a flatten version of the state matrix
             if self.config.measurement_noise:
-                v_wr_sensor = self._real_wind_to_sensor(v_wr)
+                v_wr_sensor = self._real_wind_to_sensor(new_v_wr)
             else:
-                v_wr_sensor = v_wr
+                v_wr_sensor = new_v_wr
 
             v_wr_mag = (v_wr_sensor ** 2).sum(axis=-1, keepdims=True)
             observation = np.concatenate([self.p, self.vel, v_wr_sensor, P_d, v_wr_mag, S_error], axis=1).reshape(-1)
@@ -411,7 +420,7 @@ class TurbulentFormationEnv(gym.Env):
 
     def wind_acceleration(self, v_wr):
         v_wr_norm = np.linalg.norm(v_wr, axis=1, keepdims=True)
-        wind_acc = 0.5 * self.rho * self.c_d * self.area * v_wr_norm * v_wr / self.m
+        wind_acc = (0.5 * self.rho * self.c_d * self.area * v_wr_norm / self.m) * v_wr
 
         return wind_acc
 
@@ -437,7 +446,7 @@ class TurbulentFormationEnv(gym.Env):
 
             device = torch.device('cuda')
 
-            current_t = self.iter * self.dt
+            current_t = self.iter * self.dt + self.sim_time_offset
             res_x, res_y = self.wind_sim_dict[self.selected_sim]['v'].shape[1:3]
             all_t = self.wind_sim_dict[self.selected_sim]['t']
 
