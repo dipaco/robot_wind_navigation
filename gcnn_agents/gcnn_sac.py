@@ -27,6 +27,8 @@ class GCNNSACAgent(SACAgent):
         self.use_ns_regularization = use_ns_regularization
         self.ns_regularization_weight = ns_regularization_weight
 
+        self.target_entropy = -action_dim // self.num_nodes
+
     @property
     def alpha(self):
         return self.log_alpha.exp()
