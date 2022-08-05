@@ -50,24 +50,24 @@ def _create_node_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=n
     for i in range(num_layers):
         if i == 0:
             all_layers.append(
-                (gnn.GraphConv(in_channels=in_dim, out_channels=hidden_dim, bias=False), 'x, edge_index -> x')
+                (gnn.GraphConv(in_channels=in_dim, out_channels=hidden_dim, bias=False), 'x, edge_index, edge_weights -> x')
             )
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
             all_layers.append(non_linearity(inplace=True))
         elif output_layer and i == num_layers - 1:
             all_layers.append(
                 (gnn.GraphConv(in_channels=hidden_dim, out_channels=out_dim, bias=False),
-                 'x, edge_index -> x')
+                 'x, edge_index, edge_weights -> x')
             )
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
         else:
             all_layers.append(
-                (gnn.GraphConv(in_channels=hidden_dim, out_channels=hidden_dim, bias=False), 'x, edge_index -> x')
+                (gnn.GraphConv(in_channels=hidden_dim, out_channels=hidden_dim, bias=False), 'x, edge_index, edge_weights -> x')
             )
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
             all_layers.append(non_linearity(inplace=True))
 
-    trunk = gnn.Sequential('x, edge_index', all_layers)
+    trunk = gnn.Sequential('x, edge_index, edge_weights', all_layers)
 
     return trunk
 
@@ -199,3 +199,14 @@ def zero_weight_init(m):
     elif isinstance(m, gnn.EdgeConv):
         m.nn.weight.data.fill_(0.0)
 
+
+def min_distance_graph(robot_loc, bs, num_nodes, th=1.0):
+
+    device = robot_loc.device
+    aux = torch.arange(bs, device=device)[:, None].repeat(1, num_nodes).reshape(-1)
+    batch_filter = (aux[None, :] == aux[:, None])
+    dist_mat = torch.cdist(robot_loc, robot_loc)
+    aux = dist_mat * batch_filter
+    edges = torch.stack(torch.where(torch.logical_and(aux > 0.0, aux <= th)))
+
+    return edges

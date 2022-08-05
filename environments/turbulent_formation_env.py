@@ -62,7 +62,7 @@ class TurbulentFormationEnv(gym.Env):
         self.action_dim = 2
 
         # state dimension
-        self.state_dim = 3 * self.action_dim
+        self.state_dim = 4 * self.action_dim
         if self.config.use_wind_pressure_sensors:
             self.state_dim += self.action_dim + 2 # 2 -> pressure and wind magnitude
 
@@ -222,11 +222,11 @@ class TurbulentFormationEnv(gym.Env):
             v_wr_mag = (v_wr_sensor ** 2).sum(axis=-1, keepdims=True)
 
             observation = np.concatenate([
-                self.p, self.vel, v_wr_sensor, P_t, v_wr_mag, np.zeros([self.n_agents, self.action_dim])
+                self.p, self.vel, v_wr_sensor, P_t, v_wr_mag, np.zeros([self.n_agents, 2 * self.action_dim])
             ], axis=1).reshape(-1)
         else:
             observation = np.concatenate([
-                self.p, self.vel, np.zeros([self.n_agents, self.action_dim])
+                self.p, self.vel, np.zeros([self.n_agents, 2 * self.action_dim])
             ], axis=1).reshape(-1)
 
         return observation
@@ -270,9 +270,6 @@ class TurbulentFormationEnv(gym.Env):
         return P_d[:, None]
 
     def step(self, action):
-        #action = np.zeros_like(action)
-        #print(action)
-
         # Reshape and scale the action from the controller
         action = self.MAX_ROBOT_ACCELERATION * action.reshape(self.n_agents, -1)
 
@@ -302,10 +299,6 @@ class TurbulentFormationEnv(gym.Env):
                     # Applies the formation control action
                     acc[i, :] += - self.K_p * ((self.p[i, :] - self.p[j, :]) + (self.formation_ref[i, :] - self.formation_ref[j, :])) - self.K_d * (self.vel[i, :] - self.vel[j, :])
 
-        # Applies the action from the RL control
-        if self.config.use_turbulence_control:
-            acc += action
-
         # Get the wind velocity at the query points
         if self.config.turbulence_model is not None:
             v_we = self.get_disturbance(self.p)
@@ -313,6 +306,12 @@ class TurbulentFormationEnv(gym.Env):
             v_wr = v_we - self.vel
         else:
             v_wr = np.zeros_like(self.vel)
+
+        # Applies the action from the RL control
+        if self.config.use_turbulence_control:
+            acc += action
+            #acc -= self.wind_acceleration(v_wr)
+            #acc += np.random.normal(loc=0.0, scale=4.0, size=acc.shape)
 
         # simulate one time steps of the robots dynamics
         #self._simulate(acc)
@@ -325,14 +324,15 @@ class TurbulentFormationEnv(gym.Env):
         p_pred, vel_pred = self._simulate_second_order(self.p_prev, self.vel_prev, self.dt, acc - action)
 
         #S_error = self.compute_state_error(self.p, self.vel, p_pred, vel_pred)
-        S_error = self.vel - vel_pred
+        #S_error = self.vel - vel_pred
+        S_error = np.concatenate([self.p - p_pred, self.vel - vel_pred], axis=-1)
 
         reward = 0.0
         if self.config.RL_parameters.use_error_mag_reward:
             #reward += -0.1 * (S_error**2).mean()
             wg = self.config.RL_parameters.error_mag_reward_weight
             #reward += - wg * (np.linalg.norm(S_error, axis=-1)).mean()
-            control_error = (S_error ** 2).sum(axis=-1)
+            control_error = ((self.config.reward_scale * S_error) ** 2).sum(axis=-1)
             reward += - wg * control_error
 
         # Cosine similarity reward
@@ -480,7 +480,8 @@ class TurbulentFormationEnv(gym.Env):
             v = 10 * np.concatenate([-np.sin(theta)[:, None], np.cos(theta)[:, None]], axis=-1)
 
         else:
-            raise ValueError(f'Invalid turbulence model {self.config.turbulence_model}. Try [NS, random, constant].')
+            v = np.zeros_like(self.p)
+            #raise ValueError(f'Invalid turbulence model {self.config.turbulence_model}. Try [NS, random, constant].')
 
         return v
 
@@ -534,13 +535,13 @@ class TurbulentFormationEnv(gym.Env):
             x = x.reshape(-1)
             y = y.reshape(-1)
             v = self.get_disturbance(np.stack([x, y], axis=1))
+            args_dict['wind_field_x_coord'] = x.copy()
+            args_dict['wind_field_y_coord'] = y.copy()
+            args_dict['wind_field'] = v.copy()
         else:
             v = None
 
         args_dict['use_turbulence_model'] = self.config.turbulence_model
-        args_dict['wind_field_x_coord'] = x.copy()
-        args_dict['wind_field_y_coord'] = y.copy()
-        args_dict['wind_field'] = v.copy()
 
         # Computes the plot title text
         title = ''

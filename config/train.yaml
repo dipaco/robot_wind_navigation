@@ -12,10 +12,12 @@ time_to_run: 83880 # about 11:45 hours
 resume: true
 replay_buffer_capacity: ${num_train_steps}
 base_lr: 1e-3
+init_alpha: 0.1
 decay_step_size: 1e5
 decay_factor: 0.50
+reward_scale: 10.0
 
-num_seed_steps: 5000
+num_seed_steps: 500
 
 eval_frequency: 200000
 num_eval_episodes: 10

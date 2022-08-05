@@ -10,7 +10,7 @@ import torch_scatter
 from torch import distributions as pyd
 from torch_geometric import nn as gnn
 from torch_geometric.utils import to_undirected, add_self_loops
-from .agent_utils import create_gcnn, create_mlp, create_output_mlp, zero_weight_init
+from .agent_utils import create_gcnn, create_mlp, create_output_mlp, zero_weight_init, min_distance_graph
 from torch_cluster import knn
 
 import utils
@@ -114,18 +114,11 @@ class GCNNDiagGaussianActor(nn.Module):
             # we do not pass the global position to the network
             trunk_input_size = gnn_obs_dim - self.gnn_action_dim
 
-        if self.use_output_mlp:
-            if self.ignore_neighbors:
-                self.trunk = create_mlp(trunk_input_size, 2 * self.gnn_action_dim, self.hidden_dim, self.hidden_depth)
-            else:
-                self.trunk = create_gcnn(trunk_input_size, 2 * self.gnn_action_dim, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type, output_layer=False)
-
+        if self.ignore_neighbors:
+            self.trunk = create_mlp(trunk_input_size, 2 * self.gnn_action_dim, self.hidden_dim, self.hidden_depth)
             self.mlp_trunk = create_output_mlp(self.hidden_dim, 2 * self.gnn_action_dim)
         else:
-            if self.ignore_neighbors:
-                self.trunk = create_mlp(trunk_input_size, 2 * self.gnn_action_dim, self.hidden_dim, self.hidden_depth)
-            else:
-                self.trunk = create_gcnn(trunk_input_size, 2 * self.gnn_action_dim, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type)
+            self.trunk = create_gcnn(trunk_input_size, 2 * self.gnn_action_dim, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type, output_layer=not self.use_output_mlp)
 
         self.outputs = dict()
         #self.apply(zero_weight_init)
@@ -133,6 +126,7 @@ class GCNNDiagGaussianActor(nn.Module):
     def forward(self, obs):
 
         device = obs.device
+        eps = 1e-10
 
         if self.input_batch_norm:
             # Normalize the input features
@@ -140,7 +134,8 @@ class GCNNDiagGaussianActor(nn.Module):
 
         bs = obs.shape[0]
         input_features = obs.view(bs * self.num_nodes, self.obs_dim // self.num_nodes)
-        batch_idx = torch.arange(bs, device=input_features.device).view(-1, 1).repeat(1, self.num_nodes).view(-1)
+        robot_loc = input_features[:, :2]
+        #batch_idx = torch.arange(bs, device=input_features.device).view(-1, 1).repeat(1, self.num_nodes).view(-1)
 
         # FIXME: This can be definitely done better using the Batch Class from torch_geometric
         if self.ignore_neighbors:
@@ -156,7 +151,6 @@ class GCNNDiagGaussianActor(nn.Module):
                 edges = torch.cat([edges + i * self.num_nodes for i in range(bs)], dim=-1)
             elif self.graph_type == 'knn':
                 r_th = 1.0
-                robot_loc = input_features[:, :2]
                 edges = min_distance_graph(robot_loc, bs, self.num_nodes, r_th)
             else:
                 raise ValueError(f'Wrong graph type: {self.graph_type}. Provide a value in [formation, complete, knn]')
@@ -174,8 +168,6 @@ class GCNNDiagGaussianActor(nn.Module):
             w = input_features[:, w_idx:w_idx + self.gnn_action_dim]    # Get average wind vector
             P = input_features[:, p_idx:p_idx + 1]                      # Get the pressure
 
-            #import pdb
-            #pdb.set_trace()
             turb_energy = self.ns_branch(input_features[:, self.action_dim:self.num_ns_input], edges)
             input_features = torch.cat([input_features, turb_energy], dim=-1)
 
@@ -189,7 +181,11 @@ class GCNNDiagGaussianActor(nn.Module):
         else:
             # we do not pass the global position to the network
             # we need to pass the edges when the networks is a GNN
-            net_args = (input_features[:, self.gnn_action_dim:], edges)
+            if self.conv_type == 'node':
+                edge_weights = torch.exp(-(robot_loc[edges[1]] - robot_loc[edges[0]]).norm(dim=-1))
+                net_args = (input_features[:, self.gnn_action_dim:], edges, edge_weights)
+            else:
+                net_args = (input_features[:, self.gnn_action_dim:], edges)
 
         out = self.trunk(*net_args)
         if self.use_output_mlp:
