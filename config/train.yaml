@@ -40,6 +40,7 @@ gnn_parameters:
     input_batch_norm: false
     hidden_dim: 128
     ignore_neighbors: false
+    hidden_depth: 2
 
 # turbulence options
 only_do_turb_control: false
@@ -50,7 +51,13 @@ turbulence_base_folder: /mnt/beegfs/data/diego/turbulence/
 use_ns_regularization: false
 ns_regularization_weight: 1.0
 measurement_noise: true
-use_wind_pressure_sensors: true
+use_wind_pressure_sensors: false
+
+# wind sensor parameters
+wind_sensor:
+    max_speed: 60.0 # m/s
+    speed_accuracy: 1.2 # m/s
+    angle_accuracy: 3.0 # degrees
 
 RL_parameters:
     use_error_mag_reward: true

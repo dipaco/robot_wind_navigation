@@ -23,7 +23,7 @@ agent:
     critic_tau: 0.005
     critic_target_update_frequency: 2
     batch_size: 512
-    learnable_temperature: false
+    learnable_temperature: true
     decay_step_size: ${decay_step_size}
     decay_factor: ${decay_factor}
     
@@ -37,7 +37,7 @@ double_q_critic:
     obs_dim: ${agent.params.obs_dim}
     action_dim: ${agent.params.action_dim}
     hidden_dim: ${gnn_parameters.hidden_dim}
-    hidden_depth: 2
+    hidden_depth: ${gnn_parameters.hidden_depth}
     ignore_neighbors: ${gnn_parameters.ignore_neighbors}
     graph_type: ${formation_params.graph_type}
     
@@ -53,6 +53,6 @@ diag_gaussian_actor:
     action_dim: ${agent.params.action_dim}
     hidden_depth: 2
     hidden_dim: ${gnn_parameters.hidden_dim}
-    log_std_bounds: [-5.0, 5.0] #[-0.2, 0.2]
+    log_std_bounds: [-10.0, 10.0] #[-0.2, 0.2]
     ignore_neighbors: ${gnn_parameters.ignore_neighbors}
     graph_type: ${formation_params.graph_type}
