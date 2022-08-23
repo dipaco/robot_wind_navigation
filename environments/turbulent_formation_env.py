@@ -21,16 +21,18 @@ from agent_utils import get_formation_conf, normalize
 
 
 class TurbulentFormationEnv(gym.Env):
-    WIND_SENSOR_MAX_SPEED = 60.0
-    WIND_SENSOR_MAG_ACC = 0.02 * WIND_SENSOR_MAX_SPEED
-    WIND_SENSOR_DIR_ACC = 3 * np.pi / 180
-    WIND_SENSOR_MAG_RES = 1 # number of decimal places
-    WIND_SENSOR_DIR_RES = 2 # number of decimal places
 
     def __init__(self, config):
 
         # setup the config options
         self.config = config
+
+        # Set the wind sensor
+        self.WIND_SENSOR_MAX_SPEED = self.config.wind_sensor.max_speed
+        self.WIND_SENSOR_MAG_ACC = self.config.wind_sensor.speed_accuracy #0.02 * self.WIND_SENSOR_MAX_SPEED  # * 0.00005
+        self.WIND_SENSOR_DIR_ACC = self.config.wind_sensor.angle_accuracy * np.pi / 180 #3 * np.pi / 180  # * 0.00005
+        self.WIND_SENSOR_MAG_RES = 1  # number of decimal places
+        self.WIND_SENSOR_DIR_RES = 2  # number of decimal places
 
         # controls whether we want to start the simulation from time=0 or from some offset
         self.sim_time_offset = 15.0
@@ -52,7 +54,7 @@ class TurbulentFormationEnv(gym.Env):
         # env shape   reference formation points
         self.bounds = np.array([-5.0, 5.0, -5.0, 5.0])  # xmin, xmax, ymin, ymax
 
-        self.MAX_WIND_SIMULATION_SPEED = 15.0
+        self.MAX_WIND_SIMULATION_SPEED = 15.0 # 17.0 ~ 60 km/h
         self.MAX_ROBOT_ACCELERATION = 0.5 * self.rho * self.c_d * self.area * (self.MAX_WIND_SIMULATION_SPEED ** 2) / self.m
 
         # Team parameters and initializations
@@ -68,7 +70,7 @@ class TurbulentFormationEnv(gym.Env):
 
         self.G = None
         self.formation_ref = None
-        self.formation_ref, self.G = get_formation_conf(self.config.formation_params.formation_type)
+        self.formation_ref, self.G = get_formation_conf(self.config.formation_params.formation_type, robot_distance=self.config.formation_params.formation_radius)
 
         # initialize robot pose
         if self.config.formation_params.init_points == 'random':
@@ -284,20 +286,23 @@ class TurbulentFormationEnv(gym.Env):
         leader_vel = np.zeros_like(self.leader_goal)
 
         acc = np.zeros((self.n_agents, 2))
+        pd_acc = np.zeros((self.n_agents, 2))
 
         #acc[0, :] = 0.5 * self.K_p * (self.leader_goal - self.p[0, :]) + self.K_d * (leader_vel - self.vel[0, :])
-        acc[0, :] = self.K_p * (self.leader_goal - self.p[0, :]) + self.K_d * (leader_vel - self.vel[0, :])
+        pd_acc[0, :] = self.K_p * (self.leader_goal - self.p[0, :]) + self.K_d * (leader_vel - self.vel[0, :])
 
         # Applies the PD control
         if self.config.formation_params.formation_contro_type == 'simple':
             p_d = self.leader_goal + self.formation_ref
             v_d = np.zeros_like(self.vel)
-            acc = self.K_p * (p_d - self.p) + self.K_d * (v_d - self.vel)
+            pd_acc = self.K_p * (p_d - self.p) + self.K_d * (v_d - self.vel)
         elif self.config.formation_params.formation_contro_type == 'magnus':
             for i in range(1, self.n_agents):
                 for j in self.G.neighbors(i):
                     # Applies the formation control action
-                    acc[i, :] += - self.K_p * ((self.p[i, :] - self.p[j, :]) + (self.formation_ref[i, :] - self.formation_ref[j, :])) - self.K_d * (self.vel[i, :] - self.vel[j, :])
+                    pd_acc[i, :] += - self.K_p * ((self.p[i, :] - self.p[j, :]) + (self.formation_ref[i, :] - self.formation_ref[j, :])) - self.K_d * (self.vel[i, :] - self.vel[j, :])
+
+        acc += pd_acc
 
         # Get the wind velocity at the query points
         if self.config.turbulence_model is not None:
@@ -320,8 +325,8 @@ class TurbulentFormationEnv(gym.Env):
         self.p_prev, self.vel_prev = np.copy(self.p), np.copy(self.vel)
         self.p, self.vel = self._simulate_second_order(self.p_prev, self.vel_prev, self.dt, acc, v_wr)
 
-        # Simulate dynamics assuming no wind
-        p_pred, vel_pred = self._simulate_second_order(self.p_prev, self.vel_prev, self.dt, acc - action)
+        # Simulate dynamics with only the PD control and assuming no wind
+        p_pred, vel_pred = self._simulate_second_order(self.p_prev, self.vel_prev, self.dt, pd_acc)
 
         #S_error = self.compute_state_error(self.p, self.vel, p_pred, vel_pred)
         #S_error = self.vel - vel_pred
