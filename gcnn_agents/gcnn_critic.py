@@ -52,24 +52,17 @@ class GCNNDoubleQCritic(nn.Module):
         # but adding the action dimension to the Q network's input
         trunk_input_size = (gnn_obs_dim - self.gnn_action_dim) + self.gnn_action_dim
 
-        if self.use_output_mlp:
-            if self.ignore_neighbors:
-                self.Q1 = create_mlp(trunk_input_size, 1, self.hidden_dim, self.hidden_depth)
-                self.Q2 = create_mlp(trunk_input_size, 1, self.hidden_dim, self.hidden_depth)
-            else:
-                self.Q1 = create_gcnn(trunk_input_size, 1, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type, output_layer=False)
-                self.Q2 = create_gcnn(trunk_input_size, 1, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type, output_layer=False)
+        if self.ignore_neighbors:
+            self.Q1 = create_mlp(trunk_input_size, 1, self.hidden_dim, self.hidden_depth, output_layer=not self.use_output_mlp)
+            self.Q2 = create_mlp(trunk_input_size, 1, self.hidden_dim, self.hidden_depth, output_layer=not self.use_output_mlp)
+        else:
+            self.Q1 = create_gcnn(trunk_input_size, 1, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type, output_layer=not self.use_output_mlp)
+            self.Q2 = create_gcnn(trunk_input_size, 1, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type, output_layer=not self.use_output_mlp)
 
+        if self.use_output_mlp:
             # FIXME: (dipaco) I am unsure if this actually works. I think the dimensions for the output mlp are not right
             self.mlp_Q1 = create_output_mlp(self.hidden_dim, 1)
             self.mlp_Q2 = create_output_mlp(self.hidden_dim, 1)
-        else:
-            if self.ignore_neighbors:
-                self.Q1 = create_mlp(trunk_input_size, 1, self.hidden_dim, self.hidden_depth)
-                self.Q2 = create_mlp(trunk_input_size, 1, self.hidden_dim, self.hidden_depth)
-            else:
-                self.Q1 = create_gcnn(trunk_input_size, 1, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type)
-                self.Q2 = create_gcnn(trunk_input_size, 1, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type)
 
         self.G = None
         _, self.G = get_formation_conf(self.formation_type)

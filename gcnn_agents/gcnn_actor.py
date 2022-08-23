@@ -115,10 +115,12 @@ class GCNNDiagGaussianActor(nn.Module):
             trunk_input_size = gnn_obs_dim - self.gnn_action_dim
 
         if self.ignore_neighbors:
-            self.trunk = create_mlp(trunk_input_size, 2 * self.gnn_action_dim, self.hidden_dim, self.hidden_depth)
-            self.mlp_trunk = create_output_mlp(self.hidden_dim, 2 * self.gnn_action_dim)
+            self.trunk = create_mlp(trunk_input_size, 2 * self.gnn_action_dim, self.hidden_dim, self.hidden_depth, output_layer=not self.use_output_mlp)
         else:
             self.trunk = create_gcnn(trunk_input_size, 2 * self.gnn_action_dim, self.hidden_dim, self.hidden_depth, non_linearity=nn.ReLU, conv_type=self.conv_type, output_layer=not self.use_output_mlp)
+
+        if self.use_output_mlp:
+            self.mlp_trunk = create_output_mlp(self.hidden_dim, 2 * self.gnn_action_dim)
 
         self.outputs = dict()
         #self.apply(zero_weight_init)
@@ -188,6 +190,7 @@ class GCNNDiagGaussianActor(nn.Module):
                 net_args = (input_features[:, self.gnn_action_dim:], edges)
 
         out = self.trunk(*net_args)
+
         if self.use_output_mlp:
             out = self.mlp_trunk(out)
         mu, log_std = out.chunk(2, dim=-1)
