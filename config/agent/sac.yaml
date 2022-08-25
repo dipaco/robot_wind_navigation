@@ -39,6 +39,7 @@ double_q_critic:
     hidden_dim: ${gnn_parameters.hidden_dim}
     hidden_depth: ${gnn_parameters.hidden_depth}
     ignore_neighbors: ${gnn_parameters.ignore_neighbors}
+    ignore_neighbors_at_testing: ${gnn_parameters.ignore_neighbors_at_testing}
     graph_type: ${formation_params.graph_type}
     
 diag_gaussian_actor:
@@ -55,4 +56,5 @@ diag_gaussian_actor:
     hidden_dim: ${gnn_parameters.hidden_dim}
     log_std_bounds: [-10.0, 10.0] #[-0.2, 0.2]
     ignore_neighbors: ${gnn_parameters.ignore_neighbors}
+    ignore_neighbors_at_testing: ${gnn_parameters.ignore_neighbors_at_testing}
     graph_type: ${formation_params.graph_type}

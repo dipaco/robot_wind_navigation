@@ -71,7 +71,7 @@ class SquashedNormal(pyd.transformed_distribution.TransformedDistribution):
 class GCNNDiagGaussianActor(nn.Module):
     """torch.distributions implementation of an diagonal Gaussian policy."""
     def __init__(self, num_nodes, obs_dim, action_dim, hidden_dim, hidden_depth,
-                 log_std_bounds, use_ns_regularization, conv_type, input_batch_norm, formation_type, ignore_neighbors, graph_type):
+                 log_std_bounds, use_ns_regularization, conv_type, input_batch_norm, formation_type, ignore_neighbors, ignore_neighbors_at_testing, graph_type):
         super().__init__()
 
         self.num_nodes = num_nodes
@@ -84,8 +84,9 @@ class GCNNDiagGaussianActor(nn.Module):
         self.conv_type = conv_type
         self.input_batch_norm = input_batch_norm
         self.formation_type = formation_type
-        self.use_output_mlp = False
+        self.use_output_mlp = True
         self.ignore_neighbors = ignore_neighbors
+        self.ignore_neighbors_at_testing = ignore_neighbors_at_testing
         self.graph_type = graph_type
 
         assert self.obs_dim % self.num_nodes == 0, f'The number of robots (nodes={self.num_nodes})' \
@@ -140,9 +141,12 @@ class GCNNDiagGaussianActor(nn.Module):
         #batch_idx = torch.arange(bs, device=input_features.device).view(-1, 1).repeat(1, self.num_nodes).view(-1)
 
         # FIXME: This can be definitely done better using the Batch Class from torch_geometric
-        if self.ignore_neighbors:
+        if self.ignore_neighbors or (not self.training and self.ignore_neighbors_at_testing):
             edges = torch.stack(2 * [torch.arange(self.num_nodes, device=device)]).long()
+            edges = torch.cat([edges + i * self.num_nodes for i in range(bs)], dim=-1)
         else:
+            #import pdb
+            #pdb.set_trace()
             if self.graph_type == 'formation':
                 G = self.G
                 edges = to_undirected(torch.tensor([e for e in G.edges], device=device).long().T)
@@ -158,7 +162,7 @@ class GCNNDiagGaussianActor(nn.Module):
                 raise ValueError(f'Wrong graph type: {self.graph_type}. Provide a value in [formation, complete, knn]')
 
             if self.conv_type == 'edge':
-                edges, _ = add_self_loops(edges, num_nodes=self.num_nodes)
+                edges, _ = add_self_loops(edges, num_nodes=bs*self.num_nodes)
 
         if self.use_ns_regularization:
 

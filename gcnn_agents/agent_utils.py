@@ -23,7 +23,7 @@ def _create_attention_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linear
     for i in range(num_layers):
         if i == 0:
             all_layers.append(
-                (gnn.GATConv(in_channels=in_dim, out_channels=hidden_dim // 4, heads=4, bias=False), 'x, edge_index -> x')
+                (gnn.GATConv(in_channels=in_dim, out_channels=hidden_dim // 4, heads=4), 'x, edge_index -> x')
             )
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
             all_layers.append(non_linearity(inplace=True))
@@ -34,7 +34,7 @@ def _create_attention_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linear
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
         else:
             all_layers.append(
-                (gnn.GATConv(in_channels=hidden_dim, out_channels=hidden_dim // 4, heads=4, bias=False), 'x, edge_index -> x')
+                (gnn.GATConv(in_channels=hidden_dim, out_channels=hidden_dim // 4, heads=4), 'x, edge_index -> x')
             )
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
             all_layers.append(non_linearity(inplace=True))
@@ -50,7 +50,7 @@ def _create_node_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=n
     for i in range(num_layers):
         if i == 0:
             all_layers.append(
-                (gnn.GraphConv(in_channels=in_dim, out_channels=hidden_dim, bias=False), 'x, edge_index, edge_weights -> x')
+                (gnn.GraphConv(in_channels=in_dim, out_channels=hidden_dim), 'x, edge_index, edge_weights -> x')
             )
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
             all_layers.append(non_linearity(inplace=True))
@@ -62,7 +62,7 @@ def _create_node_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=n
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
         else:
             all_layers.append(
-                (gnn.GraphConv(in_channels=hidden_dim, out_channels=hidden_dim, bias=False), 'x, edge_index, edge_weights -> x')
+                (gnn.GraphConv(in_channels=hidden_dim, out_channels=hidden_dim), 'x, edge_index, edge_weights -> x')
             )
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
             all_layers.append(non_linearity(inplace=True))
@@ -79,7 +79,7 @@ def _create_edge_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=n
     for i in range(num_layers):
         if i == 0:
             all_layers.append(
-                (gnn.EdgeConv(nn.Linear(in_features=2*in_dim, out_features=hidden_dim, bias=False), aggr='mean'), 'x, edge_index -> x')
+                (gnn.EdgeConv(nn.Linear(in_features=2*in_dim, out_features=hidden_dim), aggr='mean'), 'x, edge_index -> x')
             )
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
             all_layers.append(non_linearity(inplace=True))
@@ -91,7 +91,7 @@ def _create_edge_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=n
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
         else:
             all_layers.append(
-                (gnn.EdgeConv(nn.Linear(in_features=2*hidden_dim, out_features=hidden_dim, bias=False), aggr='mean'), 'x, edge_index -> x')
+                (gnn.EdgeConv(nn.Linear(in_features=2*hidden_dim, out_features=hidden_dim), aggr='mean'), 'x, edge_index -> x')
             )
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
             all_layers.append(non_linearity(inplace=True))
@@ -105,7 +105,7 @@ def create_output_mlp(in_dim, out_dim):
     mlp = nn.Sequential(
         nn.Linear(in_dim, in_dim // 4), nn.ReLU(inplace=True),
         nn.Linear(in_dim // 4, in_dim // 16), nn.ReLU(inplace=True),
-        nn.Linear(in_dim // 16, out_dim)
+        nn.Linear(in_dim // 16, out_dim, bias=False)
     )
 
     return mlp
@@ -120,7 +120,7 @@ def create_mlp(input_dim, output_dim, hidden_dim, hidden_depth, output_layer=Tru
             mods += [nn.Linear(hidden_dim, hidden_dim), nn.ReLU(inplace=True)]
 
         if output_layer:
-            mods.append(nn.Linear(hidden_dim, output_dim))
+            mods.append(nn.Linear(hidden_dim, output_dim, bias=False))
 
     trunk = nn.Sequential(*mods)
     return trunk
