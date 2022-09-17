@@ -11,11 +11,16 @@ save_steps: 50000
 time_to_run: 83880 # about 11:45 hours
 resume: true
 replay_buffer_capacity: ${num_train_steps}
-base_lr: 1e-3
+base_lr: 1e-4
 init_alpha: 0.1
-decay_step_size: 1e5
-decay_factor: 0.50
-reward_scale: 10.0
+decay_step_size: 1e6
+decay_factor: 0.5
+reward_scale: 1000.0
+memory_size: 1
+buffer_update_interval: 5
+network_update_interval: 1
+use_state_velocity: true
+reward_weights_vector: [1.0, 1.0, 1.0, 1.0]
 
 num_seed_steps: 5000
 
@@ -36,7 +41,7 @@ seed: 1
 
 # GNN parameters
 gnn_parameters:
-    conv_type: node # [node, edge, attention]
+    conv_type: node # [node, edge, attention, gcn, tag]
     input_batch_norm: false
     hidden_dim: 128
     ignore_neighbors: false
@@ -52,6 +57,8 @@ turbulence_base_folder: /mnt/beegfs/data/diego/turbulence/
 use_ns_regularization: false
 ns_regularization_weight: 1.0
 measurement_noise: true
+position_noise: 0.1
+velocity_noise: 0.1
 use_wind_pressure_sensors: false
 
 # wind sensor parameters
@@ -65,8 +72,12 @@ RL_parameters:
     error_mag_reward_weight: 1.0
     use_cosine_reward: false
     cosine_reward_weight: 5.0
-    use_action_mag_reward: true
+    use_action_mag_reward: false
     action_mag_reward_weight: 0.0001 #0.01
+    use_gt_reward: false
+    gt_reward_weight: 1.0 #0.01
+    use_time_delays: false
+    use_reward_history: false
 
 # Formation params
 formation_params:

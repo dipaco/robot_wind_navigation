@@ -4,6 +4,14 @@ from torch import nn
 import torch.nn.functional as F
 import networkx as nx
 from torch_geometric import nn as gnn
+from torch_geometric.nn import knn_graph as torch_knn_graph
+
+from typing import Union, Tuple
+from torch_geometric.typing import OptTensor, OptPairTensor, Adj, Size
+
+from torch import Tensor
+from torch.nn import Linear
+from torch_sparse import SparseTensor, matmul
 
 
 def create_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=nn.ReLU, norm=False, conv_type='node', output_layer=True):
@@ -13,8 +21,72 @@ def create_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=nn.ReLU
         return _create_edge_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity, norm, output_layer)
     elif conv_type == 'attention':
         return _create_attention_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity, norm, output_layer)
+    elif conv_type == 'gcn':
+        return _create_gcn_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity, norm, output_layer)
+    elif conv_type == 'tag':
+        return _create_tag_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity, norm, output_layer)
+    elif conv_type == 'dna':
+        return _create_dna_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity, norm, output_layer)
+    elif conv_type == 'rel_pos':
+        return _create_rel_pose_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity, norm, output_layer)
+    elif conv_type == 'rel_pos_hack':
+        return _create_rel_pose_hack_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity, norm, output_layer)
     else:
         raise ValueError(f'Wrong Graph Convolution type: {conv_type}. Try [node, edge].')
+
+
+def _create_gcn_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=nn.ReLU, norm=True, output_layer=True):
+    all_layers = []
+    num_layers = hidden_depth + 2 if output_layer else hidden_depth + 1
+    for i in range(num_layers):
+        if i == 0:
+            all_layers.append(
+                (gnn.GCNConv(in_channels=in_dim, out_channels=hidden_dim), 'x, edge_index -> x')
+            )
+            if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
+            all_layers.append(non_linearity(inplace=False))
+        elif output_layer and i == num_layers - 1:
+            all_layers.append(
+                (gnn.GCNConv(in_channels=hidden_dim, out_channels=out_dim, bias=True), 'x, edge_index -> x')
+            )
+            if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
+        else:
+            all_layers.append(
+                (gnn.GCNConv(in_channels=hidden_dim, out_channels=hidden_dim), 'x, edge_index -> x')
+            )
+            if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
+            all_layers.append(non_linearity(inplace=False))
+
+    trunk = gnn.Sequential('x, edge_index', all_layers)
+
+    return trunk
+
+
+def _create_tag_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=nn.ReLU, norm=True, output_layer=True):
+    all_layers = []
+    num_layers = hidden_depth + 2 if output_layer else hidden_depth + 1
+    for i in range(num_layers):
+        if i == 0:
+            all_layers.append(
+                (gnn.TAGConv(in_channels=in_dim, out_channels=hidden_dim, K=2), 'x, edge_index -> x')
+            )
+            if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
+            all_layers.append(non_linearity(inplace=False))
+        elif output_layer and i == num_layers - 1:
+            all_layers.append(
+                (gnn.TAGConv(in_channels=hidden_dim, out_channels=out_dim, K=2, bias=True), 'x, edge_index -> x')
+            )
+            if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
+        else:
+            all_layers.append(
+                (gnn.TAGConv(in_channels=hidden_dim, out_channels=hidden_dim, K=2), 'x, edge_index -> x')
+            )
+            if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
+            all_layers.append(non_linearity(inplace=False))
+
+    trunk = gnn.Sequential('x, edge_index', all_layers)
+
+    return trunk
 
 
 def _create_attention_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=nn.ReLU, norm=True, output_layer=True):
@@ -26,10 +98,10 @@ def _create_attention_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linear
                 (gnn.GATConv(in_channels=in_dim, out_channels=hidden_dim // 4, heads=4), 'x, edge_index -> x')
             )
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
-            all_layers.append(non_linearity(inplace=True))
+            all_layers.append(non_linearity(inplace=False))
         elif output_layer and i == num_layers - 1:
             all_layers.append(
-                (gnn.GATConv(in_channels=hidden_dim, out_channels=out_dim, heads=1, bias=False), 'x, edge_index -> x')
+                (gnn.GATConv(in_channels=hidden_dim, out_channels=out_dim, heads=1, bias=True), 'x, edge_index -> x')
             )
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
         else:
@@ -37,9 +109,64 @@ def _create_attention_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linear
                 (gnn.GATConv(in_channels=hidden_dim, out_channels=hidden_dim // 4, heads=4), 'x, edge_index -> x')
             )
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
-            all_layers.append(non_linearity(inplace=True))
+            all_layers.append(non_linearity(inplace=False))
 
     trunk = gnn.Sequential('x, edge_index', all_layers)
+
+    return trunk
+
+
+def _create_rel_pose_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=nn.ReLU, norm=True, output_layer=True):
+    all_layers = []
+    num_layers = hidden_depth + 2 if output_layer else hidden_depth + 1
+    for i in range(num_layers):
+        if i == 0:
+            all_layers.append(
+                (GraphRelPosConv(in_channels=in_dim, out_channels=hidden_dim, dim=2, aggr='mean'), 'x, edge_index, rel_pos -> x')
+            )
+            if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
+            all_layers.append(non_linearity(inplace=False))
+        elif output_layer and i == num_layers - 1:
+            all_layers.append(
+                (GraphRelPosConv(in_channels=hidden_dim, out_channels=out_dim, dim=2, aggr='mean'), 'x, edge_index, rel_pos -> x')
+            )
+            if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
+        else:
+            all_layers.append(
+                (GraphRelPosConv(in_channels=hidden_dim, out_channels=hidden_dim, dim=2, aggr='mean'), 'x, edge_index, rel_pos -> x')
+            )
+            if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
+            all_layers.append(non_linearity(inplace=False))
+
+    trunk = gnn.Sequential('x, edge_index, rel_pos', all_layers)
+
+    return trunk
+
+
+def _create_rel_pose_hack_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=nn.ReLU, norm=True, output_layer=True):
+    all_layers = []
+    num_layers = hidden_depth + 2 if output_layer else hidden_depth + 1
+
+    for i in range(num_layers):
+        if i == 0:
+            all_layers.append(
+                (GraphRelPosHackConv(in_channels=in_dim, out_channels=hidden_dim, dim=2, aggr='max'), 'x, edge_index, rel_pos -> x')
+            )
+            if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
+            all_layers.append(non_linearity(inplace=False))
+        elif output_layer and i == num_layers - 1:
+            all_layers.append(
+                (GraphRelPosHackConv(in_channels=hidden_dim, out_channels=out_dim, dim=2, aggr='max'), 'x, edge_index, rel_pos -> x')
+            )
+            if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
+        else:
+            all_layers.append(
+                (GraphRelPosHackConv(in_channels=hidden_dim, out_channels=hidden_dim, dim=2, aggr='max'), 'x, edge_index, rel_pos -> x')
+            )
+            if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
+            all_layers.append(non_linearity(inplace=False))
+
+    trunk = gnn.Sequential('x, edge_index, rel_pos', all_layers)
 
     return trunk
 
@@ -50,22 +177,22 @@ def _create_node_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=n
     for i in range(num_layers):
         if i == 0:
             all_layers.append(
-                (gnn.GraphConv(in_channels=in_dim, out_channels=hidden_dim), 'x, edge_index, edge_weights -> x')
+                (gnn.GraphConv(in_channels=in_dim, out_channels=hidden_dim, aggr='mean'), 'x, edge_index, edge_weights -> x')
             )
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
-            all_layers.append(non_linearity(inplace=True))
+            all_layers.append(non_linearity(inplace=False))
         elif output_layer and i == num_layers - 1:
             all_layers.append(
-                (gnn.GraphConv(in_channels=hidden_dim, out_channels=out_dim, bias=False),
+                (gnn.GraphConv(in_channels=hidden_dim, out_channels=out_dim, aggr='mean'),
                  'x, edge_index, edge_weights -> x')
             )
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
         else:
             all_layers.append(
-                (gnn.GraphConv(in_channels=hidden_dim, out_channels=hidden_dim), 'x, edge_index, edge_weights -> x')
+                (gnn.GraphConv(in_channels=hidden_dim, out_channels=hidden_dim, aggr='mean'), 'x, edge_index, edge_weights -> x')
             )
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
-            all_layers.append(non_linearity(inplace=True))
+            all_layers.append(non_linearity(inplace=False))
 
     trunk = gnn.Sequential('x, edge_index, edge_weights', all_layers)
 
@@ -82,10 +209,10 @@ def _create_edge_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=n
                 (gnn.EdgeConv(nn.Linear(in_features=2*in_dim, out_features=hidden_dim), aggr='mean'), 'x, edge_index -> x')
             )
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
-            all_layers.append(non_linearity(inplace=True))
+            all_layers.append(non_linearity(inplace=False))
         elif output_layer and i == num_layers - 1:
             all_layers.append(
-                (gnn.EdgeConv(nn.Linear(in_features=2*hidden_dim, out_features=out_dim, bias=False), aggr='mean'),
+                (gnn.EdgeConv(nn.Linear(in_features=2*hidden_dim, out_features=out_dim, bias=True), aggr='mean'),
                  'x, edge_index -> x')
             )
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
@@ -94,18 +221,27 @@ def _create_edge_gcnn(in_dim, out_dim, hidden_dim, hidden_depth, non_linearity=n
                 (gnn.EdgeConv(nn.Linear(in_features=2*hidden_dim, out_features=hidden_dim), aggr='mean'), 'x, edge_index -> x')
             )
             if norm: all_layers.append(gnn.BatchNorm(in_channels=hidden_dim, track_running_stats=True))
-            all_layers.append(non_linearity(inplace=True))
+            all_layers.append(non_linearity(inplace=False))
 
     trunk = gnn.Sequential('x, edge_index', all_layers)
 
     return trunk
 
 
-def create_output_mlp(in_dim, out_dim):
+def create_output_mlp(in_dim, out_dim, last_layer_bias=False):
     mlp = nn.Sequential(
-        nn.Linear(in_dim, in_dim // 4), nn.ReLU(inplace=True),
-        nn.Linear(in_dim // 4, in_dim // 16), nn.ReLU(inplace=True),
-        nn.Linear(in_dim // 16, out_dim, bias=False)
+        nn.Linear(in_dim, in_dim // 4), nn.ReLU(inplace=False),
+        nn.Linear(in_dim // 4, out_dim, bias=last_layer_bias)
+    )
+
+    return mlp
+
+
+def create_input_mlp(in_dim, out_dim):
+    mlp = nn.Sequential(
+        nn.Linear(in_dim, out_dim // 4), nn.ReLU(inplace=False),
+        nn.Linear(out_dim // 4, out_dim // 2), nn.ReLU(inplace=False),
+        nn.Linear(out_dim // 2, out_dim, bias=False)
     )
 
     return mlp
@@ -115,9 +251,9 @@ def create_mlp(input_dim, output_dim, hidden_dim, hidden_depth, output_layer=Tru
     if hidden_depth == 0:
         mods = [nn.Linear(input_dim, output_dim)]
     else:
-        mods = [nn.Linear(input_dim, hidden_dim), nn.ReLU(inplace=True)]
+        mods = [nn.Linear(input_dim, hidden_dim), nn.ReLU(inplace=False)]
         for i in range(hidden_depth):
-            mods += [nn.Linear(hidden_dim, hidden_dim), nn.ReLU(inplace=True)]
+            mods += [nn.Linear(hidden_dim, hidden_dim), nn.ReLU(inplace=False)]
 
         if output_layer:
             mods.append(nn.Linear(hidden_dim, output_dim, bias=False))
@@ -210,3 +346,121 @@ def min_distance_graph(robot_loc, bs, num_nodes, th=1.0):
     edges = torch.stack(torch.where(torch.logical_and(aux > 0.0, aux <= th)))
 
     return edges
+
+
+def delaunay_graph(robot_loc, bs, num_nodes):
+    batch_idx = torch.arange(bs, device=robot_loc.device).view(-1, 1).repeat(1, num_nodes).view(-1)
+    raise NotImplementedError()
+
+
+def knn_graph(robot_loc, k, bs, num_nodes):
+    batch_idx = torch.arange(bs, device=robot_loc.device).view(-1, 1).repeat(1, num_nodes).view(-1)
+    edges = torch_knn_graph(robot_loc, k, batch_idx)
+
+    return edges
+
+
+class GraphRelPosConv(gnn.MessagePassing):
+    def __init__(self,
+                 in_channels: Union[int, Tuple[int, int]],
+                 out_channels: int,
+                 dim: int,
+                 aggr: str = 'add',
+                 bias: bool = True,
+                 **kwargs):
+        super(GraphRelPosConv, self).__init__(aggr=aggr, **kwargs)
+
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+
+        if isinstance(in_channels, int):
+            in_channels = (in_channels, in_channels)
+
+        self.lin_l = Linear(in_channels[0] + dim, out_channels, bias=bias)
+        self.lin_r = Linear(in_channels[1], out_channels, bias=False)
+
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        self.lin_l.reset_parameters()
+        self.lin_r.reset_parameters()
+
+    def forward(self, x: Union[Tensor, OptPairTensor], edge_index: Adj, rel_pos: Union[Tensor, OptPairTensor],
+                edge_weight: OptTensor = None, size: Size = None) -> Tensor:
+        """"""
+        if isinstance(x, Tensor):
+            x: OptPairTensor = (x, x)
+
+        # propagate_type: (x: OptPairTensor, edge_weight: OptTensor)
+        out = self.propagate(edge_index, x=x, edge_weight=rel_pos, size=size)
+        out = self.lin_l(out)
+
+        x_r = x[1]
+        if x_r is not None:
+            out += self.lin_r(x_r)
+
+        return out
+
+    def message(self, x_j: Tensor, edge_weight: OptTensor) -> Tensor:
+        return x_j if edge_weight is None else torch.cat([x_j, edge_weight], dim=-1)
+
+    def message_and_aggregate(self, adj_t: SparseTensor,
+                              x: OptPairTensor) -> Tensor:
+        return matmul(adj_t, x[0], reduce=self.aggr)
+
+    def __repr__(self):
+        return '{}({}, {})'.format(self.__class__.__name__, self.in_channels,
+                                   self.out_channels)
+
+
+class GraphRelPosHackConv(gnn.MessagePassing):
+    def __init__(self,
+                 in_channels: Union[int, Tuple[int, int]],
+                 out_channels: int,
+                 dim: int,
+                 aggr: str = 'add',
+                 bias: bool = True,
+                 **kwargs):
+        super(GraphRelPosHackConv, self).__init__(aggr=aggr, **kwargs)
+
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+
+        if isinstance(in_channels, int):
+            in_channels = (in_channels, in_channels)
+
+        self.lin_l = Linear(in_channels[0] + dim, out_channels, bias=bias)
+        self.lin_r = Linear(in_channels[1], out_channels, bias=False)
+
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        self.lin_l.reset_parameters()
+        self.lin_r.reset_parameters()
+
+    def forward(self, x: Union[Tensor, OptPairTensor], edge_index: Adj, rel_pos: Union[Tensor, OptPairTensor],
+                edge_weight: OptTensor = None, size: Size = None) -> Tensor:
+        """"""
+        if isinstance(x, Tensor):
+            x: OptPairTensor = (x, x)
+
+        # propagate_type: (x: OptPairTensor, edge_weight: OptTensor)
+        out = self.propagate(edge_index, x=x, edge_weight=rel_pos, size=size)
+        out = self.lin_l(out)
+
+        x_r = x[1]
+        if x_r is not None:
+            out += self.lin_r(x_r)
+
+        return out
+
+    def message(self, x_j: Tensor, edge_weight: OptTensor) -> Tensor:
+        return x_j if edge_weight is None else torch.cat([x_j, edge_weight], dim=-1)
+
+    def message_and_aggregate(self, adj_t: SparseTensor,
+                              x: OptPairTensor) -> Tensor:
+        return matmul(adj_t, x[0], reduce=self.aggr)
+
+    def __repr__(self):
+        return '{}({}, {})'.format(self.__class__.__name__, self.in_channels,
+                                   self.out_channels)

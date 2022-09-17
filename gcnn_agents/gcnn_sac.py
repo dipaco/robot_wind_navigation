@@ -13,7 +13,7 @@ class GCNNSACAgent(SACAgent):
                  actor_lr, actor_betas, actor_update_frequency, critic_lr,
                  critic_betas, critic_tau, critic_target_update_frequency,
                  batch_size, learnable_temperature, num_nodes, use_ns_regularization,
-                 ns_regularization_weight, decay_step_size=int(1e10), decay_factor=0.9):
+                 ns_regularization_weight, decay_step_size=int(1e10), decay_factor=0.9, target_entropy=2.0):
         super().__init__(obs_dim, action_dim, action_range, device, critic_cfg, actor_cfg, discount, init_temperature,
                          alpha_lr, alpha_betas, actor_lr, actor_betas, actor_update_frequency, critic_lr, critic_betas,
                          critic_tau, critic_target_update_frequency, batch_size // int(math.sqrt(num_nodes)), learnable_temperature)
@@ -27,7 +27,8 @@ class GCNNSACAgent(SACAgent):
         self.use_ns_regularization = use_ns_regularization
         self.ns_regularization_weight = ns_regularization_weight
 
-        self.target_entropy = -action_dim // self.num_nodes
+        #self.target_entropy = -action_dim // self.num_nodes
+        self.target_entropy = target_entropy
 
     @property
     def alpha(self):
@@ -79,6 +80,7 @@ class GCNNSACAgent(SACAgent):
         bs = obs.shape[0]
         dist, ns_loss = self.actor(obs)
         action = dist.rsample()
+
         log_prob = dist.log_prob(action).view(bs, self.num_nodes, -1).sum(dim=-1)
         actor_Q1, actor_Q2 = self.critic(obs, action)
 

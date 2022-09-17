@@ -73,7 +73,7 @@ class Workspace(object):
                              log_frequency=cfg.log_frequency,
                              agent=cfg.agent.name)'''
 
-        utils.set_seed_everywhere(cfg.seed)
+        #utils.set_seed_everywhere(cfg.seed)
         self.device = torch.device(cfg.device)
         self.env = make_turbulence_env(cfg)
 
@@ -220,7 +220,7 @@ class Workspace(object):
                     action = self.agent.act(obs, sample=True)
 
             # run training update
-            if self.step >= self.cfg.num_seed_steps:
+            if self.step >= self.cfg.num_seed_steps and self.step % self.cfg.network_update_interval == 0:
                 self.agent.update(self.replay_buffer, self.logger, self.step)
 
             next_obs, reward, done, metrics_dict = self.env.step(action)
@@ -235,7 +235,8 @@ class Workspace(object):
             done_no_max = 0 if episode_step + 1 == self.env._max_episode_steps else done
             episode_reward += reward.mean()
 
-            self.replay_buffer.add(obs, action, reward, next_obs, done, done_no_max)
+            if self.step % self.cfg.buffer_update_interval == 0:
+                self.replay_buffer.add(obs, action, reward, next_obs, done, done_no_max)
 
             obs = next_obs
             episode_step += 1

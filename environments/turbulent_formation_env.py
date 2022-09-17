@@ -9,6 +9,7 @@ import copy
 import networkx as nx
 import netCDF4 as nc
 import torch
+from collections import deque
 from gym.spaces import Dict, Discrete, Box, Tuple
 from scipy.interpolate import interp2d
 from scipy.interpolate import griddata
@@ -22,6 +23,17 @@ from agent_utils import get_formation_conf, normalize
 
 class TurbulentFormationEnv(gym.Env):
 
+    #@property
+    #def p(self):
+    #    return self.state_memory[-1]
+
+    #@price.setter
+    #def price(self, new_price):
+    #    if new_price > 0 and isinstance(new_price, float):
+    #        self._price = new_price
+    #    else:
+    #        print("Please enter a valid price")
+
     def __init__(self, config):
 
         # setup the config options
@@ -33,6 +45,10 @@ class TurbulentFormationEnv(gym.Env):
         self.WIND_SENSOR_DIR_ACC = self.config.wind_sensor.angle_accuracy * np.pi / 180 #3 * np.pi / 180  # * 0.00005
         self.WIND_SENSOR_MAG_RES = 1  # number of decimal places
         self.WIND_SENSOR_DIR_RES = 2  # number of decimal places
+
+        self.memory_size = self.config.memory_size
+        self.state_memory = deque(maxlen=self.memory_size)
+        self.reward_memory = deque(maxlen=self.memory_size)
 
         # controls whether we want to start the simulation from time=0 or from some offset
         self.sim_time_offset = 15.0
@@ -83,8 +99,6 @@ class TurbulentFormationEnv(gym.Env):
         else:
             raise ValueError(f'Wrong point initialization "{self.config.formation_params.init_points}". Try [random, in_formation]')
 
-        # self.p = np.array([[0.0, 0.0], [1.0, 0.0], [-1.0, 0.0]])
-
         self.vel = np.zeros_like(self.p)
 
         # goal location for leader
@@ -123,10 +137,34 @@ class TurbulentFormationEnv(gym.Env):
         elif self.config.turbulence_model == 'constant':
             self.wind_theta = np.pi * (2*np.random.rand() - 1)
             self.wind_theta = 0.0
+        elif self.config.turbulence_model == 'circular':
+
+            #0.8 * (self.bounds[1] - self.bounds[0]) * np.random.rand(8, 2) + 0.8 * self.bounds[0]
+            self.turn_points = np.array([[0.00000000, 0.00000000], [-3.37587388, -4.47573422], [-1.24287916, 2.29069837],
+                   [2.51773945, 2.48812189], [.02593, -3.19192316], [1.62173255, 4.90770298],
+                   [-3.64338233, -2.95955611], [1.30853774, 4.70076018], [-4.34925095, 3.90891228]])
+
+            c_size = int(np.ceil(self._max_episode_steps / (self.turn_points.shape[0] - 1)))
+            self.turb_centers = np.concatenate([
+                (np.arange(c_size) / c_size)[:, None] * (self.turn_points[i + 1] - self.turn_points[i])[None, :] + self.turn_points[i]
+                for i in range(self.turn_points.shape[0] - 1)
+            ], axis=0)
+
+            #self.turb_mag = 10 * np.cos(np.linspace(0, 1, self._max_episode_steps) * 2 * np.pi * self.turn_points.shape[0])
+
+            wd = 21
+            self.turb_centers = np.apply_along_axis(
+                lambda el: np.convolve(el, np.ones(wd) / wd, mode='same'),
+                axis=0,
+                arr=self.turb_centers
+            )
 
         # setup the action and observation space
         self.action_space = Box(-1.0, 1.0, (self.n_agents * self.action_dim,))
-        self.observation_space = Box(self.bounds[0], self.bounds[1], (self.n_agents * self.state_dim,))
+        if self.config.RL_parameters.use_time_delays:
+            self.observation_space = Box(self.bounds[0], self.bounds[1], (self.n_agents * self.state_dim * self.memory_size,))
+        else:
+            self.observation_space = Box(self.bounds[0], self.bounds[1], (self.n_agents * self.state_dim,))
 
         #self.last_action = None
 
@@ -178,13 +216,11 @@ class TurbulentFormationEnv(gym.Env):
             self.p = 0.8 * (self.bounds[1] - self.bounds[0]) * np.random.rand(self.n_agents, 2) + self.bounds[0]
             self.leader_goal = 0.7 * (self.bounds[1] - self.bounds[0]) * np.random.rand(2) + self.bounds[0]
         elif self.config.formation_params.init_points == 'in_formation':
-            randon_translation = 0.3 * (self.bounds[1] - self.bounds[0]) * (2 * np.random.rand(1, 2) - 1)
+            randon_translation = 0.15 * (self.bounds[1] - self.bounds[0]) * (2 * np.random.rand(1, 2) - 1)
             self.p = np.copy(self.formation_ref) + randon_translation
             self.leader_goal = self.p[0, :]
         else:
             raise ValueError(f'Wrong point initialization "{self.config.formation_params.init_points}". Try [random, in_formation]')
-
-        #self.p = np.array([[0.0, 0.0], [1.0, 0.0], [-2.0, 0.0]])
 
         self.vel = np.zeros_like(self.p)
 
@@ -192,7 +228,6 @@ class TurbulentFormationEnv(gym.Env):
 
         self.last_frame = None
         self.done = False
-
         self.fig = None
 
         # setup the turbpulence
@@ -201,6 +236,15 @@ class TurbulentFormationEnv(gym.Env):
         elif self.config.turbulence_model == 'NS':
             self._setup_NS_turbulence()
 
+        p_sensor = self.p.copy()
+        vel_sensor = self.vel.copy()
+        if self.config.measurement_noise:
+            pos_noise = self.config.position_noise
+            vel_noise = self.config.velocity_noise
+            p_sensor += np.random.normal(loc=np.zeros_like(p_sensor), scale=pos_noise * np.ones_like(p_sensor))
+            vel_sensor += np.random.normal(loc=np.zeros_like(vel_sensor), scale=vel_noise * np.ones_like(vel_sensor))
+
+        [self.reward_memory.append(np.zeros(self.n_agents)) for i in range(self.memory_size)]
         if self.config.use_wind_pressure_sensors:
 
             # Get the wind velocity at the query points
@@ -223,13 +267,26 @@ class TurbulentFormationEnv(gym.Env):
             # computes the squared wind magnitude
             v_wr_mag = (v_wr_sensor ** 2).sum(axis=-1, keepdims=True)
 
-            observation = np.concatenate([
-                self.p, self.vel, v_wr_sensor, P_t, v_wr_mag, np.zeros([self.n_agents, 2 * self.action_dim])
-            ], axis=1).reshape(-1)
+            current_observation = np.concatenate([
+                p_sensor, vel_sensor, v_wr_sensor, P_t, v_wr_mag, np.zeros([self.n_agents, 2 * self.action_dim])
+            ], axis=1)
         else:
-            observation = np.concatenate([
-                self.p, self.vel, np.zeros([self.n_agents, 2 * self.action_dim])
-            ], axis=1).reshape(-1)
+            current_observation = np.concatenate([
+                p_sensor, vel_sensor, np.zeros([self.n_agents, 2 * self.action_dim])
+            ], axis=1)
+
+        if not self.config.use_state_velocity:
+            current_observation[:, 2:4] = 0
+
+        current_observation = current_observation.reshape(-1)
+
+        [self.state_memory.append(np.zeros_like(current_observation)) for i in range(self.memory_size)]
+        self.state_memory.append(current_observation)
+
+        if self.config.RL_parameters.use_time_delays:
+            observation = np.array(self.state_memory).reshape(-1)
+        else:
+            observation = self.state_memory[-1]
 
         return observation
 
@@ -325,33 +382,47 @@ class TurbulentFormationEnv(gym.Env):
         self.p_prev, self.vel_prev = np.copy(self.p), np.copy(self.vel)
         self.p, self.vel = self._simulate_second_order(self.p_prev, self.vel_prev, self.dt, acc, v_wr)
 
+        # Define the sensor variables, and add noise if needed
+        p_sensor = self.p.copy()
+        vel_sensor = self.vel.copy()
+        if self.config.measurement_noise:
+            pos_noise = self.config.position_noise
+            vel_noise = self.config.velocity_noise
+            p_sensor += np.random.normal(loc=np.zeros_like(p_sensor), scale=pos_noise * np.ones_like(p_sensor))
+            vel_sensor += np.random.normal(loc=np.zeros_like(vel_sensor), scale=vel_noise * np.ones_like(vel_sensor))
+
         # Simulate dynamics with only the PD control and assuming no wind
         p_pred, vel_pred = self._simulate_second_order(self.p_prev, self.vel_prev, self.dt, pd_acc)
 
-        #S_error = self.compute_state_error(self.p, self.vel, p_pred, vel_pred)
-        #S_error = self.vel - vel_pred
-        S_error = np.concatenate([self.p - p_pred, self.vel - vel_pred], axis=-1)
+        # define the perturbance error
+        S_error = np.concatenate([p_pred - p_sensor, vel_pred - vel_sensor], axis=-1)
+        S_error *= np.array(self.config.reward_weights_vector)
 
-        reward = 0.0
+        current_reward = 0.0
+        control_error = ((self.config.reward_scale * S_error) ** 2).sum(axis=-1)
         if self.config.RL_parameters.use_error_mag_reward:
             #reward += -0.1 * (S_error**2).mean()
             wg = self.config.RL_parameters.error_mag_reward_weight
-            #reward += - wg * (np.linalg.norm(S_error, axis=-1)).mean()
-            control_error = ((self.config.reward_scale * S_error) ** 2).sum(axis=-1)
-            reward += - wg * control_error
+            #current_reward += - wg * (np.linalg.norm(S_error, axis=-1)).mean()
+            current_reward += - wg * control_error
 
         # Cosine similarity reward
         if self.config.RL_parameters.use_cosine_reward:
             wg = self.config.RL_parameters.cosine_reward_weight
-            cos_error = ((normalize(self.vel, axis=-1) * normalize(vel_pred, axis=-1)).sum(axis=-1) - 1.0)
-            reward += wg * cos_error
+            cos_error = ((normalize(vel_sensor, axis=-1) * normalize(vel_pred, axis=-1)).sum(axis=-1) - 1.0)
+            current_reward += wg * cos_error
 
         # Minimum energy reward
         action_mag = (action ** 2).sum(axis=-1)
         if self.config.RL_parameters.use_action_mag_reward:
             wg = self.config.RL_parameters.action_mag_reward_weight
-            #reward += - wg * np.linalg.norm(action, axis=-1).mean()
-            reward += - wg * action_mag
+            #current_reward += - wg * np.linalg.norm(action, axis=-1).mean()
+            current_reward += - wg * action_mag
+
+        self.last_gt_acc = gt_acc = -self.wind_acceleration(v_wr)
+        if self.config.RL_parameters.use_gt_reward:
+            wg = self.config.RL_parameters.gt_reward_weight
+            current_reward += - wg * ((10*gt_acc + 10*action)**2).sum(axis=-1)
 
         # Computes the formation error
         self.formation_error[:, self.iter] = self._compute_formation_error()
@@ -373,10 +444,14 @@ class TurbulentFormationEnv(gym.Env):
                 v_wr_sensor = new_v_wr
 
             v_wr_mag = (v_wr_sensor ** 2).sum(axis=-1, keepdims=True)
-            observation = np.concatenate([self.p, self.vel, v_wr_sensor, P_d, v_wr_mag, S_error], axis=1).reshape(-1)
-            # observation = self.p.reshape(-1)
+            current_observation = np.concatenate([p_sensor, vel_sensor, v_wr_sensor, P_d, v_wr_mag, S_error], axis=1)
         else:
-            observation = np.concatenate([self.p, self.vel, S_error], axis=1).reshape(-1)
+            current_observation = np.concatenate([p_sensor, vel_sensor, S_error], axis=1)
+
+        if not self.config.use_state_velocity:
+            current_observation[:, 2:4] = 0
+
+        current_observation = current_observation.reshape(-1)
 
         # check if any robot is out of the working space. If it is the case creates a big negative reward
         bounds_cond = (self.p[:, 0] < self.bounds[0]) | (self.p[:, 0] > self.bounds[1]) | (
@@ -385,7 +460,7 @@ class TurbulentFormationEnv(gym.Env):
         self.iter += 1
         if np.any(bounds_cond):
 
-            reward[bounds_cond] += -10.0
+            current_reward[bounds_cond] += -10.0
 
         if self.iter >= self._max_episode_steps:
             done = True
@@ -396,6 +471,20 @@ class TurbulentFormationEnv(gym.Env):
             'control_error': control_error,
             'action_mag': action_mag,
         }
+
+        # adds the current reward to the reward memory
+        self.reward_memory.append(current_reward)
+        self.state_memory.append(current_observation)
+
+        if self.config.RL_parameters.use_time_delays:
+            observation = np.array(self.state_memory).reshape(-1)
+        else:
+            observation = self.state_memory[-1]
+
+        if self.config.RL_parameters.use_reward_history:
+            reward = np.array(self.reward_memory).sum(axis=0)
+        else:
+            reward = self.reward_memory[-1]
 
         return observation, reward, done, metrics_dict
 
@@ -409,10 +498,10 @@ class TurbulentFormationEnv(gym.Env):
 
         p_next = np.copy(p)
         vel_next = np.copy(vel)
-        #n = 10
-        #for i in range(n):
-        p_next += dt * vel_next
-        vel_next += dt * (action + wind_acceleration) # TODO: compute the wind_acceleration at t + i*dt/n
+        n = 10
+        for i in range(n):
+            p_next += dt / n * vel_next
+            vel_next += dt / n * (action + wind_acceleration) # TODO: compute the wind_acceleration at t + i*dt/n
 
         return p_next, vel_next
 
@@ -481,8 +570,8 @@ class TurbulentFormationEnv(gym.Env):
             base_wind = np.array([[8.0, 0.0]]) @ rot_mat.T
             v = base_wind * np.ones_like(query_points) # + np.random.normal(loc=0.0, scale=0.5, size=query_points.shape)
         elif self.config.turbulence_model == 'circular':
-            theta = np.arctan2(query_points[:, 1], query_points[:, 0])
-            v = 10 * np.concatenate([-np.sin(theta)[:, None], np.cos(theta)[:, None]], axis=-1)
+            theta = np.arctan2(query_points[:, 1] - self.turb_centers[self.iter, 1], query_points[:, 0] - self.turb_centers[self.iter, 0])
+            v = 8 * np.concatenate([-np.sin(theta)[:, None], np.cos(theta)[:, None]], axis=-1)
 
         else:
             v = np.zeros_like(self.p)
@@ -550,10 +639,15 @@ class TurbulentFormationEnv(gym.Env):
 
         # Computes the plot title text
         title = ''
-        for i in range(self.last_action.shape[0]):
+        for i in range(min(self.last_action.shape[0], 4)):
             sp_x = ' ' if self.last_action[i, 0] >= 0 else ''
             sp_y = ' ' if self.last_action[i, 1] >= 0 else ''
             title = f'{title} | Act. Node {i}=[{sp_x}{self.last_action[i, 0]:.2f}, {sp_y}{self.last_action[i, 1]:.2f}]'
+        title = f'{title}\n'
+        for i in range(min(self.last_action.shape[0], 4)):
+            sp_x = ' ' if self.last_action[i, 0] >= 0 else ''
+            sp_y = ' ' if self.last_action[i, 1] >= 0 else ''
+            title = f'{title} | GT.  Node {i}=[{sp_x}{self.last_gt_acc[i, 0]:.2f}, {sp_y}{self.last_gt_acc[i, 1]:.2f}]'
         args_dict['title'] = title
 
         args_dict['fig_aspect_ratio'] = 18.0 / 9.0  # Aspect ratio of video.
