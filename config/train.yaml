@@ -104,6 +104,8 @@ formation_params:
     #   ]
     formation_type: 0
     graph_type: 'formation'                 # [formation, complete, knn]
+    formation_radius: 1.0
+    num_neighbors: 5
 
 # hydra configuration
 hydra:
