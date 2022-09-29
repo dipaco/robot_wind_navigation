@@ -17,12 +17,12 @@ agent:
     alpha_betas: [0.9, 0.999]
     actor_lr: ${base_lr}
     actor_betas: [0.9, 0.999]
-    actor_update_frequency: 1
+    actor_update_frequency: ${network_update_interval}
     critic_lr: ${base_lr}
     critic_betas: [0.9, 0.999]
     critic_tau: 0.005
-    critic_target_update_frequency: 1
-    batch_size: 512
+    critic_target_update_frequency: ${network_update_interval}
+    batch_size: 1024
     learnable_temperature: true
     target_entropy: -13.0
     decay_step_size: ${decay_step_size}
@@ -44,6 +44,7 @@ double_q_critic:
     graph_type: ${formation_params.graph_type}
     num_delays: ${memory_size}
     use_time_delays: ${RL_parameters.use_time_delays}
+    num_neighbors: ${formation_params.num_neighbors}
     
 diag_gaussian_actor:
   class: gcnn_agents.GCNNDiagGaussianActor
@@ -63,3 +64,4 @@ diag_gaussian_actor:
     graph_type: ${formation_params.graph_type}
     num_delays: ${memory_size}
     use_time_delays: ${RL_parameters.use_time_delays}
+    num_neighbors: ${formation_params.num_neighbors}

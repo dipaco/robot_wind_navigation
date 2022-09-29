@@ -14,6 +14,9 @@ from gym.spaces import Dict, Discrete, Box, Tuple
 from scipy.interpolate import interp2d
 from scipy.interpolate import griddata
 from torch.nn.functional import grid_sample
+from torch_geometric.nn import knn_graph as torch_knn_graph
+from torch_scatter import scatter
+from torch_geometric.utils import add_self_loops
 
 __BASE_FOLDER__ = os.path.dirname(os.path.abspath(__file__))
 dist_package_folder = os.path.join(__BASE_FOLDER__, '../gcnn_agents/')
@@ -51,7 +54,7 @@ class TurbulentFormationEnv(gym.Env):
         self.reward_memory = deque(maxlen=self.memory_size)
 
         # controls whether we want to start the simulation from time=0 or from some offset
-        self.sim_time_offset = 15.0
+        self.sim_time_offset = self.config.episode_offset
 
         # Quadracopters info: https://funoffline.com/how-much-does-a-drone-weigh/
 
@@ -62,15 +65,17 @@ class TurbulentFormationEnv(gym.Env):
         # mass in Kg
         self.m = 0.3
         # reference area of a sphere or r=10 cm
-        self.robot_radius = 0.05
-        self.area = 4 * np.pi * (self.robot_radius ** 2)
+        self.robot_radius = 0.1
+        # Area of the orthogonal projection a one side of the a sphere (a.k.a. a circle)
+        self.area = np.pi * (self.robot_radius ** 2)
         # drag coefficient of a sphere
         self.c_d = 0.47
 
         # env shape   reference formation points
         self.bounds = np.array([-5.0, 5.0, -5.0, 5.0])  # xmin, xmax, ymin, ymax
 
-        self.MAX_WIND_SIMULATION_SPEED = 15.0 # 17.0 ~ 60 km/h
+        #self.MAX_WIND_SIMULATION_SPEED = 15.0 # 17.0 ~ 60 km/h
+        self.MAX_WIND_SIMULATION_SPEED = self.config.max_robot_acceleration
         self.MAX_ROBOT_ACCELERATION = 0.5 * self.rho * self.c_d * self.area * (self.MAX_WIND_SIMULATION_SPEED ** 2) / self.m
 
         # Team parameters and initializations
@@ -93,7 +98,10 @@ class TurbulentFormationEnv(gym.Env):
             self.p = 0.8 * (self.bounds[1] - self.bounds[0]) * np.random.rand(self.n_agents, 2) + self.bounds[0]
             self.leader_goal = 0.7 * (self.bounds[1] - self.bounds[0]) * np.random.rand(2) + self.bounds[0]
         elif self.config.formation_params.init_points == 'in_formation':
-            randon_translation = 0.3 * (self.bounds[1] - self.bounds[0]) * (2 * np.random.rand(1, 2) - 1)
+            #randon_translation = 0.3 * (self.bounds[1] - self.bounds[0]) * (2 * np.random.rand(1, 2) - 1)
+            margin = 1
+            ws = self.bounds[1] - self.bounds[0]
+            randon_translation = (ws - np.sqrt(self.n_agents) + 1 - 2 * margin) * (np.random.rand(1, 2)) - (ws / 2 - margin)
             self.p = np.copy(self.formation_ref) + randon_translation
             self.leader_goal = self.p[0, :]
         else:
@@ -107,12 +115,12 @@ class TurbulentFormationEnv(gym.Env):
         self.final_goal = np.array([0.0, 0.0])
 
         # proportional gain for goal controller
-        self.K_p = 2.5  # 1.0*5
-        self.K_d = 1.25 # 0.5*5
+        self.K_p = 2.5 #0.5  # 1.0*5
+        self.K_d = 2.5 #1.0 # 0.5*5
 
         # simulation time step and timing parameter
         self.iter = 0
-        self._max_episode_steps = 900 # 450
+        self._max_episode_steps = self.config.max_episode_steps # 900 # 450
 
         self.dt = 0.066
         self.done = False
@@ -216,7 +224,10 @@ class TurbulentFormationEnv(gym.Env):
             self.p = 0.8 * (self.bounds[1] - self.bounds[0]) * np.random.rand(self.n_agents, 2) + self.bounds[0]
             self.leader_goal = 0.7 * (self.bounds[1] - self.bounds[0]) * np.random.rand(2) + self.bounds[0]
         elif self.config.formation_params.init_points == 'in_formation':
-            randon_translation = 0.15 * (self.bounds[1] - self.bounds[0]) * (2 * np.random.rand(1, 2) - 1)
+            # randon_translation = 0.3 * (self.bounds[1] - self.bounds[0]) * (2 * np.random.rand(1, 2) - 1)
+            margin = 1
+            ws = self.bounds[1] - self.bounds[0]
+            randon_translation = (ws - np.sqrt(self.n_agents) + 1 - 2 * margin) * (np.random.rand(1, 2)) - (ws / 2 - margin)
             self.p = np.copy(self.formation_ref) + randon_translation
             self.leader_goal = self.p[0, :]
         else:
@@ -399,12 +410,41 @@ class TurbulentFormationEnv(gym.Env):
         S_error *= np.array(self.config.reward_weights_vector)
 
         current_reward = 0.0
-        control_error = ((self.config.reward_scale * S_error) ** 2).sum(axis=-1)
+        if self.config.RL_parameters.norm == 'l2':
+            control_error = ((self.config.reward_scale * S_error) ** 2).sum(axis=-1)
+        else:
+            control_error = self.config.reward_scale * np.linalg.norm(S_error, axis=-1)
+
         if self.config.RL_parameters.use_error_mag_reward:
             #reward += -0.1 * (S_error**2).mean()
             wg = self.config.RL_parameters.error_mag_reward_weight
             #current_reward += - wg * (np.linalg.norm(S_error, axis=-1)).mean()
             current_reward += - wg * control_error
+
+        if self.config.RL_parameters.use_exp_reward:
+            eps = 1e-10
+            wg = self.config.RL_parameters.exp_reward_weight
+            #import pdb
+            #pdb.set_trace()
+
+            current_reward += wg * np.exp(1 / (control_error + eps))
+
+        if self.config.RL_parameters.use_sum_reward:
+
+            # FIXME: make a parameter to chose the neighborhood
+            edges = torch_knn_graph(torch.tensor(self.p).cuda(), k=self.config.formation_params.num_neighbors)
+            edges, _ = add_self_loops(edges)
+
+            edges_init = edges[0]#.cpu().numpy()
+            edges_end = edges[1]#.cpu().numpy()
+            n_idx = torch.argsort(edges_end)  # Because I am not sure knn_graph returns an organized edge_list
+            edges_init = edges_init[n_idx]
+            edges_end = edges_end[n_idx]
+
+            neighbor_errors = torch.from_numpy(control_error).cuda()[edges_init]
+
+            wg = self.config.RL_parameters.sum_reward_weight
+            current_reward += - wg * scatter(src=neighbor_errors, index=edges_end).cpu().numpy()
 
         # Cosine similarity reward
         if self.config.RL_parameters.use_cosine_reward:
@@ -444,9 +484,9 @@ class TurbulentFormationEnv(gym.Env):
                 v_wr_sensor = new_v_wr
 
             v_wr_mag = (v_wr_sensor ** 2).sum(axis=-1, keepdims=True)
-            current_observation = np.concatenate([p_sensor, vel_sensor, v_wr_sensor, P_d, v_wr_mag, S_error], axis=1)
+            current_observation = np.concatenate([p_sensor, vel_sensor, v_wr_sensor, P_d, v_wr_mag, self.config.scale_input_factor * S_error], axis=1)
         else:
-            current_observation = np.concatenate([p_sensor, vel_sensor, S_error], axis=1)
+            current_observation = np.concatenate([p_sensor, vel_sensor, self.config.scale_input_factor * S_error], axis=1)
 
         if not self.config.use_state_velocity:
             current_observation[:, 2:4] = 0
@@ -903,7 +943,7 @@ class TurbulentFormationEnv(gym.Env):
 
             ax.legend(loc='upper right', prop={'size': 6})
             ax.grid()
-            ax.set_ylim(0.6 * self.bounds[0], 0.6 * self.bounds[1])
+            ax.set_ylim(0.3 * self.bounds[0], 0.3 * self.bounds[1])
             ax.set_title(f'Formation error')
             fig.savefig(os.path.join(results_folder, f'step_{step}_formation_error.png'))
             plt.close(fig)
@@ -924,7 +964,7 @@ class TurbulentFormationEnv(gym.Env):
 
             ax.legend(loc='upper right', prop={'size': 6})
             ax.grid()
-            ax.set_ylim(0.05 * self.bounds[0], 0.4 * self.bounds[1])
+            ax.set_ylim(0.05 * self.bounds[0], 0.3 * self.bounds[1])
             ax.set_title(f'Position error')
             fig.savefig(os.path.join(results_folder, f'step_{step}_position_error.png'))
             plt.close(fig)
@@ -937,7 +977,7 @@ class TurbulentFormationEnv(gym.Env):
 
             ax.legend(loc='upper right', prop={'size': 6})
             ax.grid()
-            ax.set_ylim(0.2 * self.bounds[0], 0.6 * self.bounds[1])
+            ax.set_ylim(0.05 * self.bounds[0], 0.3 * self.bounds[1])
             ax.set_title(f'Position error per robot')
             fig.savefig(os.path.join(results_folder, f'step_{step}_position_error_per_robot.png'))
             plt.close(fig)

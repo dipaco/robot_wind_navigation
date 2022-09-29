@@ -71,7 +71,7 @@ class SquashedNormal(pyd.transformed_distribution.TransformedDistribution):
 class GCNNDiagGaussianActor(nn.Module):
     """torch.distributions implementation of an diagonal Gaussian policy."""
     def __init__(self, num_nodes, obs_dim, action_dim, hidden_dim, hidden_depth,
-                 log_std_bounds, use_ns_regularization, conv_type, input_batch_norm, formation_type, ignore_neighbors, ignore_neighbors_at_testing, graph_type, num_delays, use_time_delays):
+                 log_std_bounds, use_ns_regularization, conv_type, input_batch_norm, formation_type, ignore_neighbors, ignore_neighbors_at_testing, graph_type, num_delays, use_time_delays, num_neighbors):
         super().__init__()
 
         self.num_nodes = num_nodes
@@ -92,6 +92,7 @@ class GCNNDiagGaussianActor(nn.Module):
         self.graph_type = graph_type
         self.use_time_delays = use_time_delays
         self.num_delays = num_delays if self.use_time_delays else 1
+        self.num_neighbors = num_neighbors
 
         assert self.obs_dim % self.num_nodes == 0, f'The number of robots (nodes={self.num_nodes})' \
                                               f' do not divide the observation space size ({self.obs_dim}.)'
@@ -181,7 +182,7 @@ class GCNNDiagGaussianActor(nn.Module):
                 edges = to_undirected(torch.tensor([e for e in G.edges], device=device).long().T)
                 edges = torch.cat([edges + i * self.num_nodes for i in range(bs)], dim=-1)
             elif self.graph_type == 'knn':
-                edges = knn_graph(robot_loc, 5, bs, self.num_nodes)
+                edges = knn_graph(robot_loc, self.num_neighbors, bs, self.num_nodes)
             elif self.graph_type == 'delaunay':
                 edges = delaunay_graph(robot_loc, bs, self.num_nodes)
             elif self.graph_type == 'min_dist':

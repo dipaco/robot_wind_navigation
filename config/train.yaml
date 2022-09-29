@@ -6,7 +6,7 @@ env: cheetah_run
 # this needs to be specified manually
 experiment: test_exp
 
-num_train_steps: 1e6
+num_train_steps: 2e6
 save_steps: 50000
 time_to_run: 83880 # about 11:45 hours
 resume: true
@@ -21,11 +21,15 @@ buffer_update_interval: 5
 network_update_interval: 1
 use_state_velocity: true
 reward_weights_vector: [1.0, 1.0, 1.0, 1.0]
+max_robot_acceleration: 15
+max_episode_steps: 900
+episode_offset: 15
+scale_input_factor: 1.0
 
 num_seed_steps: 5000
 
 eval_frequency: 200000
-num_eval_episodes: 10
+num_eval_episodes: 15
 
 device: cuda
 
@@ -43,7 +47,7 @@ seed: 1
 gnn_parameters:
     conv_type: node # [node, edge, attention, gcn, tag]
     input_batch_norm: false
-    hidden_dim: 128
+    hidden_dim: 64
     ignore_neighbors: false
     ignore_neighbors_at_testing: false
     hidden_depth: 2
@@ -76,8 +80,13 @@ RL_parameters:
     action_mag_reward_weight: 0.0001 #0.01
     use_gt_reward: false
     gt_reward_weight: 1.0 #0.01
+    use_sum_reward: false
+    sum_reward_weight: 1.0 #0.01
+    use_exp_reward: false
+    exp_reward_weight: 1.0 #0.01
     use_time_delays: false
     use_reward_history: false
+    norm: 'l2'
 
 # Formation params
 formation_params:
