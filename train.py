@@ -118,56 +118,76 @@ class Workspace(object):
         signal.signal(signal.SIGALRM, self.capture_signal)
         signal.alarm(self.cfg.time_to_run)
 
-    def evaluate(self):
+    def evaluate(self, eval_folder=None, save_progress=True, gen_video=True, include_step=True):
         average_episode_reward = 0
-        results_folder = os.path.join(self.work_dir, 'results')
+
+        if eval_folder is None:
+            results_folder = os.path.join(self.work_dir, 'results')
+        else:
+            results_folder = eval_folder
+
         os.makedirs(results_folder, exist_ok=True)
-        eval_errors = {}
+        eval_metrics = {}
         for episode in range(self.cfg.num_eval_episodes):
+            print(f'Evaluating episode {episode}')
+            self.env.is_training = False
             obs = self.env.reset()
             self.agent.reset()
             self.video_recorder.init(enabled=(episode == 0), async_recorder=True)
             done = False
             episode_reward = 0
             while not done:
-
                 # Terminate with the appropriate exit code
                 if self.exit_code == 3:
-                    self.save_progress()
+                    if save_progress:
+                        self.save_progress()
                     return self.exit_code
 
                 with utils.eval_mode(self.agent):
                     action = self.agent.act(obs, sample=False)
                 obs, reward, done, _ = self.env.step(action)
                 # Only records the first eval episode
-                if episode == 0:
+                if gen_video and episode == 0:
                     self.video_recorder.record(self.env)
                 episode_reward += reward.mean()
 
             average_episode_reward += episode_reward
             # Only records the first eval episode
-            if episode == 0:
+            if gen_video and episode == 0:
                 self.video_recorder.save(f'{self.step}.mp4')
 
             # append the the episode errors to the error list
-            for k, v in self.env.get_errors().items():
-                if k in eval_errors:
-                    eval_errors[k].append(v)
+            for k, v in self.env.get_metrics().items():
+                if k in eval_metrics:
+                    eval_metrics[k].append(v)
                 else:
-                    eval_errors[k] = [v]
+                    eval_metrics[k] = [v]
 
-        for k, v in eval_errors.items():
-            eval_errors[k] = np.stack(eval_errors[k])
+        for k, v in eval_metrics.items():
+            eval_metrics[k] = np.stack(eval_metrics[k])
 
         # save formation error data and plots
-        np.save(os.path.join(results_folder, f'step_{self.step}_eval_formation_error.npy'), eval_errors)
-        self.env.plot_episode_evaluation(data_dict=eval_errors, results_folder=results_folder, step=self.step)
+        if include_step:
+            np.save(os.path.join(results_folder, f'step_{self.step}_eval_result_data.npy'), eval_metrics)
+        else:
+            np.save(os.path.join(results_folder, f'eval_result_data.npy'), eval_metrics)
+        self.env.plot_episode_evaluation(data_dict=eval_metrics, results_folder=results_folder, step=self.step if include_step else None)
 
         average_episode_reward /= self.cfg.num_eval_episodes
-        self.logger.log('eval/episode_reward', average_episode_reward, self.step)
-        self.logger.dump(self.step)
+        
+        if include_step:
+            self.logger.log('eval/episode_reward', average_episode_reward, self.step)
+            self.logger.dump(self.step)
 
     def run(self):
+        if self.cfg.mode == 'train':
+            self.train()
+        elif self.cfg.mode == 'test':
+            self.test()
+        else:
+            raise ValueError(f'Wrong run mode "{self.cfg.mode}". Valid options are ["train", "test"].')
+
+    def train(self):
         episode_reward, done, ff = 0, True, False
         start_time = time.time()
         num_evaluations = 0
@@ -203,6 +223,7 @@ class Workspace(object):
                 self.logger.log('train/episode_reward', episode_reward,
                                 self.step)
 
+                self.env.is_training = True
                 obs = self.env.reset()
                 self.agent.reset()
                 done = False
@@ -241,6 +262,10 @@ class Workspace(object):
             obs = next_obs
             episode_step += 1
             self.step += 1
+
+    def test(self):
+
+        self.evaluate(eval_folder=self.cfg.test_folder, save_progress=False, gen_video=self.cfg.gen_video, include_step=False)
 
     def save_progress(self):
         """

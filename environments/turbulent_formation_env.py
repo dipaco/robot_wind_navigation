@@ -42,6 +42,8 @@ class TurbulentFormationEnv(gym.Env):
         # setup the config options
         self.config = config
 
+        self.is_training = True
+
         # Set the wind sensor
         self.WIND_SENSOR_MAX_SPEED = self.config.wind_sensor.max_speed
         self.WIND_SENSOR_MAG_ACC = self.config.wind_sensor.speed_accuracy #0.02 * self.WIND_SENSOR_MAX_SPEED  # * 0.00005
@@ -70,6 +72,8 @@ class TurbulentFormationEnv(gym.Env):
         self.area = np.pi * (self.robot_radius ** 2)
         # drag coefficient of a sphere
         self.c_d = 0.47
+        # Viscosity coefficient of air at 15 C
+        self.mu = 1.81e-5
 
         # env shape   reference formation points
         self.bounds = np.array([-5.0, 5.0, -5.0, 5.0])  # xmin, xmax, ymin, ymax
@@ -77,6 +81,9 @@ class TurbulentFormationEnv(gym.Env):
         #self.MAX_WIND_SIMULATION_SPEED = 15.0 # 17.0 ~ 60 km/h
         self.MAX_WIND_SIMULATION_SPEED = self.config.max_robot_acceleration
         self.MAX_ROBOT_ACCELERATION = 0.5 * self.rho * self.c_d * self.area * (self.MAX_WIND_SIMULATION_SPEED ** 2) / self.m
+
+        # Num. points to compute the Reynolds number
+        self.num_Re_points = 1000
 
         # Team parameters and initializations
         self.n_agents = self.config.formation_params.num_nodes
@@ -87,7 +94,9 @@ class TurbulentFormationEnv(gym.Env):
         # state dimension
         self.state_dim = 4 * self.action_dim
         if self.config.use_wind_pressure_sensors:
-            self.state_dim += self.action_dim + 2 # 2 -> pressure and wind magnitude
+            self.state_dim += self.action_dim + 2  # 2 -> pressure and wind magnitude
+        elif self.config.use_pressure_sensor:
+            self.state_dim += 1  # -> pressure
 
         self.G = None
         self.formation_ref = None
@@ -115,8 +124,8 @@ class TurbulentFormationEnv(gym.Env):
         self.final_goal = np.array([0.0, 0.0])
 
         # proportional gain for goal controller
-        self.K_p = 2.5 #0.5  # 1.0*5
-        self.K_d = 2.5 #1.0 # 0.5*5
+        self.K_p = 2.0 #2.5 #0.5  # 1.0*5
+        self.K_d = 2.0 #2.5 #1.0 # 0.5*5
 
         # simulation time step and timing parameter
         self.iter = 0
@@ -131,6 +140,11 @@ class TurbulentFormationEnv(gym.Env):
         # Metrics
         self.formation_error = np.zeros((self.n_agents, self._max_episode_steps))
         self.position_error = np.zeros((self.n_agents, self._max_episode_steps))
+        self.velocity_error = np.zeros((self.n_agents, self._max_episode_steps))
+        self.velocity_dir_error = np.zeros((self.n_agents, self._max_episode_steps))
+        self.pred_actions = np.zeros((self.n_agents, self._max_episode_steps, self.action_dim))
+        self.gt_actions = np.zeros((self.n_agents, self._max_episode_steps, self.action_dim))
+        self.Re = np.zeros((self._max_episode_steps,))
 
         # setup turbulence
         if self.config.turbulence_model == 'random':
@@ -139,7 +153,7 @@ class TurbulentFormationEnv(gym.Env):
             self.wind_sim_dict = {}
             self.selected_sim = None
             # all_sims = [d for d in map(lambda x: os.path.join(sim_path, x), os.listdir(sim_path)) if os.path.isdir(d)]
-            self.all_sims = [d for d in os.listdir(self.config.turbulence_base_folder) if os.path.isdir(os.path.join(self.config.turbulence_base_folder, d))]
+            self.all_sims = sorted([d for d in os.listdir(self.config.turbulence_base_folder) if os.path.isdir(os.path.join(self.config.turbulence_base_folder, d))])
             assert len(self.all_sims) > 0, f"There are no valid simulation in {self.config.turbulence_base_folder}"
 
         elif self.config.turbulence_model == 'constant':
@@ -183,7 +197,12 @@ class TurbulentFormationEnv(gym.Env):
 
     def _setup_NS_turbulence(self):
 
-        sim_idx = np.random.randint(len(self.all_sims))
+        llim = int(0.8 * len(self.all_sims))
+        if self.is_training:
+            sim_idx = np.random.randint(0, llim)
+        else:
+            sim_idx = np.random.randint(llim, len(self.all_sims))
+        #sim_idx = 3
         self.selected_sim = self.all_sims[sim_idx]
 
         if self.selected_sim not in self.wind_sim_dict:
@@ -267,7 +286,10 @@ class TurbulentFormationEnv(gym.Env):
                 v_wr = np.zeros_like(self.vel)
 
             # Get the total pressure
-            P_t = self._get_pressure(v_wr)
+            P_d = self._get_pressure(v_wr)
+
+            if self.config.measurement_noise:
+                P_d += np.random.normal(loc=np.zeros_like(P_d), scale=self.config.pressure_noise * np.ones_like(P_d))
 
             # Observations are a flatten version of the state matrix
             if self.config.measurement_noise:
@@ -279,7 +301,25 @@ class TurbulentFormationEnv(gym.Env):
             v_wr_mag = (v_wr_sensor ** 2).sum(axis=-1, keepdims=True)
 
             current_observation = np.concatenate([
-                p_sensor, vel_sensor, v_wr_sensor, P_t, v_wr_mag, np.zeros([self.n_agents, 2 * self.action_dim])
+                p_sensor, vel_sensor, v_wr_sensor, P_d, v_wr_mag, np.zeros([self.n_agents, 2 * self.action_dim])
+            ], axis=1)
+        elif self.config.use_pressure_sensor:
+            # Get the wind velocity at the query points
+            if self.config.turbulence_model is not None:
+                v_we = self.get_disturbance(self.p)
+                # Velocity of the wind with respect to the robot
+                v_wr = v_we - self.vel
+            else:
+                v_wr = np.zeros_like(self.vel)
+
+            # Get the total pressure
+            P_d = self._get_pressure(v_wr)
+
+            if self.config.measurement_noise:
+                P_d += np.random.normal(loc=np.zeros_like(P_d), scale=self.config.pressure_noise * np.ones_like(P_d))
+
+            current_observation = np.concatenate([
+                p_sensor, vel_sensor, P_d, np.zeros([self.n_agents, 2 * self.action_dim])
             ], axis=1)
         else:
             current_observation = np.concatenate([
@@ -375,6 +415,17 @@ class TurbulentFormationEnv(gym.Env):
         # Get the wind velocity at the query points
         if self.config.turbulence_model is not None:
             v_we = self.get_disturbance(self.p)
+
+            if not self.is_training:
+                rg = self.bounds[1::2]-self.bounds[0::2]
+                L = rg.mean()
+                Re_points = rg * np.random.rand(self.num_Re_points, self.action_dim) + self.bounds[0::2]
+                self.get_disturbance(Re_points)
+                self.Re[self.iter] = (self.rho * np.linalg.norm(self.get_disturbance(Re_points), axis=-1) * L / self.mu).mean()
+
+            #Re = (r * V * L) / mu
+            #Re = self.rho * np.linalg.norm(V) * self.bounds[]
+
             # Velocity of the wind with respect to the robot
             v_wr = v_we - self.vel
         else:
@@ -467,6 +518,9 @@ class TurbulentFormationEnv(gym.Env):
         # Computes the formation error
         self.formation_error[:, self.iter] = self._compute_formation_error()
         self.position_error[:, self.iter] = self._compute_position_error()
+        self.velocity_error[:, self.iter], self.velocity_dir_error[:, self.iter] = self._compute_velocity_error(vel_pred, self.vel)
+        self.gt_actions[:, self.iter, :] = -self.wind_acceleration(v_wr)
+        self.pred_actions[:, self.iter, :] = action
 
         if self.config.use_wind_pressure_sensors:
 
@@ -477,6 +531,9 @@ class TurbulentFormationEnv(gym.Env):
 
             P_d = self._get_pressure(new_v_wr)
 
+            if self.config.measurement_noise:
+                P_d += np.random.normal(loc=np.zeros_like(P_d), scale=self.config.pressure_noise * np.ones_like(P_d))
+
             # Observations are a flatten version of the state matrix
             if self.config.measurement_noise:
                 v_wr_sensor = self._real_wind_to_sensor(new_v_wr)
@@ -485,6 +542,15 @@ class TurbulentFormationEnv(gym.Env):
 
             v_wr_mag = (v_wr_sensor ** 2).sum(axis=-1, keepdims=True)
             current_observation = np.concatenate([p_sensor, vel_sensor, v_wr_sensor, P_d, v_wr_mag, self.config.scale_input_factor * S_error], axis=1)
+        elif self.config.use_pressure_sensor:
+            # gets the wind measurement after applying the action
+            new_v_we = self.get_disturbance(self.p)
+            # Velocity of the wind with respect to the robot
+            new_v_wr = new_v_we - self.vel
+            P_d = self._get_pressure(new_v_wr)
+            if self.config.measurement_noise:
+                P_d += np.random.normal(loc=np.zeros_like(P_d), scale=self.config.pressure_noise * np.ones_like(P_d))
+            current_observation = np.concatenate([p_sensor, vel_sensor, P_d, self.config.scale_input_factor * S_error], axis=1)
         else:
             current_observation = np.concatenate([p_sensor, vel_sensor, self.config.scale_input_factor * S_error], axis=1)
 
@@ -643,6 +709,18 @@ class TurbulentFormationEnv(gym.Env):
     def _compute_position_error(self):
         error = np.linalg.norm(self.leader_goal[None] + (self.formation_ref - self.formation_ref[0:1, :]) - self.p, axis=1)
         return error
+
+    def _compute_velocity_error(self, vel_pred, vel):
+
+        eps = 1e-12
+        vel_pred += eps
+        vel += eps
+        error = np.linalg.norm(vel_pred - vel, axis=1)
+        error_dir = vel_pred / np.linalg.norm(vel_pred, axis=-1, keepdims=True)
+        error_dir *= vel / np.linalg.norm(vel, axis=-1, keepdims=True)
+        error_dir = 1.0 - error_dir.sum(axis=-1)
+
+        return error, error_dir
 
     def compute_state_error(self, p_r, vel_r, p_p, vel_p):
         # Robot state in the real world
@@ -945,11 +1023,14 @@ class TurbulentFormationEnv(gym.Env):
             ax.grid()
             ax.set_ylim(0.3 * self.bounds[0], 0.3 * self.bounds[1])
             ax.set_title(f'Formation error')
-            fig.savefig(os.path.join(results_folder, f'step_{step}_formation_error.png'))
+            if step is not None:
+                fig.savefig(os.path.join(results_folder, f'step_{step}_formation_error.png'))
+            else:
+                fig.savefig(os.path.join(results_folder, f'formation_error.png'))
             plt.close(fig)
 
         # Position error figure
-        if 'position_error' in data_dict:
+        '''if 'position_error' in data_dict:
             fig = plt.figure()
             ax = fig.add_subplot(1, 1, 1)
 
@@ -979,14 +1060,123 @@ class TurbulentFormationEnv(gym.Env):
             ax.grid()
             ax.set_ylim(0.05 * self.bounds[0], 0.3 * self.bounds[1])
             ax.set_title(f'Position error per robot')
-            fig.savefig(os.path.join(results_folder, f'step_{step}_position_error_per_robot.png'))
+            if step is not None:
+                fig.savefig(os.path.join(results_folder, f'step_{step}_position_error_per_robot.png'))
+            else:
+                fig.savefig(os.path.join(results_folder, f'position_error_per_robot.png'))
+            plt.close(fig)'''
+
+        # Position error figure
+        if 'position_error' in data_dict:
+            self._plot_error(
+                data_dict['position_error'], title='Position error', step=step, name='position_error',
+                y_lim=[0.05 * self.bounds[0], 0.3 * self.bounds[1]], results_folder=results_folder,
+                legend_dict={'loc': 'upper right', 'size': 6},
+            )
+
+        # Position error figure
+        if 'velocity_error' in data_dict:
+            self._plot_error(
+                data_dict['velocity_error'], title='Velocity error', step=step, name='velocity_error',
+                y_lim=[0.05 * self.bounds[0], 0.3 * self.bounds[1]], results_folder=results_folder,
+                legend_dict={'loc': 'upper right', 'size': 6},
+            )
+
+        if 'gt_actions' in data_dict and 'pred_actions' in data_dict:
+
+            gt_act = data_dict['gt_actions']
+            pred_act = data_dict['pred_actions']
+            gt_act_norm = np.linalg.norm(gt_act, axis=-1, keepdims=True)
+            pred_act_norm = np.linalg.norm(pred_act, axis=-1, keepdims=True)
+
+            mag_error = np.abs(gt_act_norm - pred_act_norm)[..., 0]
+            self._plot_error(
+                mag_error, title='Action error (Magnitude)', step=step, name='mag_action_error',
+                y_lim=[-0.10, 0.4 * self.bounds[1]], results_folder=results_folder,
+                legend_dict={'loc': 'upper right', 'size': 6},
+            )
+
+            dir_error = np.pi / 2 * (1.0 - (gt_act / gt_act_norm * pred_act / pred_act_norm).sum(axis=-1))
+            self._plot_error(
+                dir_error, title='Action error (Direction in Rads.)', step=step, name='dir_action_error',
+                y_lim=[-0.1, 1.1*np.pi], results_folder=results_folder,
+                legend_dict={'loc': 'upper right', 'size': 6},
+            )
+
+        # Position error figure
+        if 'Re' in data_dict:
+            fig = plt.figure()
+            ax = fig.add_subplot(1, 1, 1)
+            ax.plot(np.arange(data_dict['Re'].shape[1]) * self.dt, data_dict['Re'].mean(axis=0), label=f'Reynolds number')
+            #ax.legend(loc='upper left', prop={'size': 12})
+            ax.set_xlabel('Time (s)')
+            ax.set_ylabel('Re')
+            ax.grid()
+            ax.set_title(f'Reynolds number evolution')
+            if step is not None:
+                fig.savefig(os.path.join(results_folder, f'step_{step}_Re.png'))
+            else:
+                fig.savefig(os.path.join(results_folder, f'Re.png'))
             plt.close(fig)
 
-    def get_errors(self):
+            #print(data_dict['Re'].mean(axis=0)[[0, 150, 300, 450, 600, 750, 899]])
+            #print(data_dict['Re'].mean(axis=0)[0::int(self._max_episode_steps / 6)])
+
+    def _plot_error(self, data, title, name, results_folder, step=None, y_label='', y_lim=None, legend_dict=None):
+        fig = plt.figure()
+        ax = fig.add_subplot(1, 1, 1)
+        x = np.arange(data.shape[-1]) * self.dt
+
+        # colors = cm.rainbow(np.linspace(0, 1, eval_data.shape[0]))
+        colors = cm.Set1(np.linspace(0, 1, data.shape[1]))
+        for i in range(0, self.n_agents):
+            mean_data = data.mean(axis=0)
+            sdt_data = data.std(axis=0)
+
+            ax.plot(x, mean_data[i, :], label=f'Robot {i}', color=colors[i])
+            ax.fill_between(x, mean_data[i] - sdt_data[i], mean_data[i] + sdt_data[i], color=colors[i],
+                            alpha=0.1)
+
+        if legend_dict is not None:
+            ax.legend(loc=legend_dict['loc'], prop={'size': legend_dict['size']})
+        ax.grid()
+        ax.set_xlabel('Time (s)')
+        ax.set_ylabel(y_label)
+        if y_lim is not None:
+            ax.set_ylim(y_lim[0], y_lim[1])
+        ax.set_title(f'{title}')
+        if step is not None:
+            fig.savefig(os.path.join(results_folder, f'step_{step}_{name}.png'))
+        else:
+            fig.savefig(os.path.join(results_folder, f'{name}.png'))
+        plt.close(fig)
+
+        # robot error figure
+        fig = plt.figure()
+        ax = fig.add_subplot(1, 1, 1)
+
+        ax.boxplot(np.transpose(data, axes=[0, 2, 1]).reshape(-1, self.n_agents))
+
+        ax.legend(loc='upper right', prop={'size': 6})
+        ax.grid()
+        ax.set_ylim(0.05 * self.bounds[0], 0.3 * self.bounds[1])
+        ax.set_title(f'{title} per robot')
+        if step is not None:
+            fig.savefig(os.path.join(results_folder, f'step_{step}_{name}_per_robot.png'))
+        else:
+            fig.savefig(os.path.join(results_folder, f'{name}_per_robot.png'))
+        plt.close(fig)
+
+    def get_metrics(self):
 
         errors = {
             'formation_error': self.formation_error.copy(),
             'position_error': self.position_error.copy(),
+            'velocity_error': self.velocity_error.copy(),
+            'velocity_dir_error': self.velocity_dir_error.copy(),
+            'gt_actions': self.gt_actions.copy(),
+            'pred_actions': self.pred_actions.copy(),
+            'Re': self.Re.copy(),
         }
 
         return errors
