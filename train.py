@@ -174,7 +174,7 @@ class Workspace(object):
         self.env.plot_episode_evaluation(data_dict=eval_metrics, results_folder=results_folder, step=self.step if include_step else None)
 
         average_episode_reward /= self.cfg.num_eval_episodes
-        
+
         if include_step:
             self.logger.log('eval/episode_reward', average_episode_reward, self.step)
             self.logger.dump(self.step)

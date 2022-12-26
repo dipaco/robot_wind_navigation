@@ -1,3 +1,7 @@
+import matplotlib
+matplotlib.rcParams['ps.useafm'] = True
+matplotlib.rcParams['pdf.use14corefonts'] = True
+matplotlib.rcParams['text.usetex'] = True
 import math
 import os
 import sys
@@ -143,6 +147,7 @@ class TurbulentFormationEnv(gym.Env):
         self.velocity_error = np.zeros((self.n_agents, self._max_episode_steps))
         self.velocity_dir_error = np.zeros((self.n_agents, self._max_episode_steps))
         self.pred_actions = np.zeros((self.n_agents, self._max_episode_steps, self.action_dim))
+        self.pd_actions = np.zeros((self.n_agents, self._max_episode_steps, self.action_dim))
         self.gt_actions = np.zeros((self.n_agents, self._max_episode_steps, self.action_dim))
         self.Re = np.zeros((self._max_episode_steps,))
 
@@ -521,6 +526,7 @@ class TurbulentFormationEnv(gym.Env):
         self.velocity_error[:, self.iter], self.velocity_dir_error[:, self.iter] = self._compute_velocity_error(vel_pred, self.vel)
         self.gt_actions[:, self.iter, :] = -self.wind_acceleration(v_wr)
         self.pred_actions[:, self.iter, :] = action
+        self.pd_actions[:, self.iter, :] = pd_acc
 
         if self.config.use_wind_pressure_sensors:
 
@@ -797,8 +803,8 @@ class TurbulentFormationEnv(gym.Env):
         fig_w = fig_pixel_height / dpi * fig_aspect_ratio  # inches
         fig_h = fig_pixel_height / dpi  # inches
         fig, ax = plt.subplots(1, 1, figsize=(fig_w, fig_h), constrained_layout=True, dpi=dpi)
-        ax.set_xlabel('x')
-        ax.set_ylabel('y')
+        ax.set_xlabel('x', fontdict={'family': 'serif', 'color': 'black', 'weight': 'normal', 'size': 16})
+        ax.set_ylabel('y', fontdict={'family': 'serif', 'color': 'black', 'weight': 'normal', 'size': 16})
 
         bounds = args['bounds']
 
@@ -878,8 +884,8 @@ class TurbulentFormationEnv(gym.Env):
             fig_w = fig_pixel_height / dpi * fig_aspect_ratio  # inches
             fig_h = fig_pixel_height / dpi  # inches
             self.fig, self.ax = plt.subplots(1, 1, figsize=(fig_w, fig_h), constrained_layout=True, dpi=dpi)
-            self.ax.set_xlabel('x')
-            self.ax.set_ylabel('y')
+            self.ax.set_xlabel('x', fontdict={'family': 'serif', 'color': 'black', 'weight': 'normal', 'size': 16})
+            self.ax.set_ylabel('y', fontdict={'family': 'serif', 'color': 'black', 'weight': 'normal', 'size': 16})
 
             data_xlim = [self.bounds[0] - 0.5, self.bounds[1] + 0.5]
             data_ylim = [self.bounds[2] - 0.5, self.bounds[3] + 0.5]
@@ -990,7 +996,7 @@ class TurbulentFormationEnv(gym.Env):
         ax.grid()
         ax.set_ylim(0.6 * self.bounds[0], 0.6 * self.bounds[1])
         ax.set_title(f'Formation error')
-        fig.savefig(os.path.join(results_folder, f'step_{step}_formation_error.png'))
+        fig.savefig(os.path.join(results_folder, f'step_{step}_formation_error.pdf'))
         plt.close(fig)
         '''plt.figure(2)
 
@@ -998,7 +1004,7 @@ class TurbulentFormationEnv(gym.Env):
             plt.plot(range(50, self._max_episode_steps), self.error[50:self._max_episode_steps, i], label='Robot ' + str(i))
         plt.legend(loc='upper right', prop={'size': 6})
         plt.grid()
-        plt.savefig('saved_figure_50_MaxSteps.png')
+        plt.savefig('saved_figure_50_MaxSteps.pdf')
         plt.clf()'''
 
     def plot_episode_evaluation(self, data_dict, results_folder, step=0):
@@ -1007,7 +1013,7 @@ class TurbulentFormationEnv(gym.Env):
         x = self.dt * np.arange(self._max_episode_steps)
 
         if 'formation_error' in data_dict:
-            fig = plt.figure()
+            fig = plt.figure(figsize=(12.8, 4.8))
             ax = fig.add_subplot(1, 1, 1)
 
             #colors = cm.rainbow(np.linspace(0, 1, eval_data.shape[0]))
@@ -1024,14 +1030,14 @@ class TurbulentFormationEnv(gym.Env):
             ax.set_ylim(0.3 * self.bounds[0], 0.3 * self.bounds[1])
             ax.set_title(f'Formation error')
             if step is not None:
-                fig.savefig(os.path.join(results_folder, f'step_{step}_formation_error.png'))
+                fig.savefig(os.path.join(results_folder, f'step_{step}_formation_error.pdf'))
             else:
-                fig.savefig(os.path.join(results_folder, f'formation_error.png'))
+                fig.savefig(os.path.join(results_folder, f'formation_error.pdf'))
             plt.close(fig)
 
         # Position error figure
         '''if 'position_error' in data_dict:
-            fig = plt.figure()
+            fig = plt.figure(figsize=(12.8, 4.8))
             ax = fig.add_subplot(1, 1, 1)
 
             # colors = cm.rainbow(np.linspace(0, 1, eval_data.shape[0]))
@@ -1047,11 +1053,11 @@ class TurbulentFormationEnv(gym.Env):
             ax.grid()
             ax.set_ylim(0.05 * self.bounds[0], 0.3 * self.bounds[1])
             ax.set_title(f'Position error')
-            fig.savefig(os.path.join(results_folder, f'step_{step}_position_error.png'))
+            fig.savefig(os.path.join(results_folder, f'step_{step}_position_error.pdf'))
             plt.close(fig)
 
             # robot error figure
-            fig = plt.figure()
+            fig = plt.figure(figsize=(12.8, 4.8))
             ax = fig.add_subplot(1, 1, 1)
 
             ax.boxplot(np.transpose(data_dict['position_error'], axes=[0, 2, 1]).reshape(-1, self.n_agents))
@@ -1061,9 +1067,9 @@ class TurbulentFormationEnv(gym.Env):
             ax.set_ylim(0.05 * self.bounds[0], 0.3 * self.bounds[1])
             ax.set_title(f'Position error per robot')
             if step is not None:
-                fig.savefig(os.path.join(results_folder, f'step_{step}_position_error_per_robot.png'))
+                fig.savefig(os.path.join(results_folder, f'step_{step}_position_error_per_robot.pdf'))
             else:
-                fig.savefig(os.path.join(results_folder, f'position_error_per_robot.png'))
+                fig.savefig(os.path.join(results_folder, f'position_error_per_robot.pdf'))
             plt.close(fig)'''
 
         # Position error figure
@@ -1105,18 +1111,20 @@ class TurbulentFormationEnv(gym.Env):
 
         # Position error figure
         if 'Re' in data_dict:
-            fig = plt.figure()
+            fig = plt.figure(figsize=(12.8, 4.8))
             ax = fig.add_subplot(1, 1, 1)
             ax.plot(np.arange(data_dict['Re'].shape[1]) * self.dt, data_dict['Re'].mean(axis=0), label=f'Reynolds number')
             #ax.legend(loc='upper left', prop={'size': 12})
-            ax.set_xlabel('Time (s)')
-            ax.set_ylabel('Re')
+            ax.tick_params(axis='both', which='major', labelsize=16)
+            ax.tick_params(axis='both', which='minor', labelsize=16)
+            ax.set_xlabel('Time (s)', fontdict={'family': 'serif', 'color': 'black', 'weight': 'normal', 'size': 16})
+            ax.set_ylabel('Re', fontdict={'family': 'serif', 'color': 'black', 'weight': 'normal', 'size': 16})
             ax.grid()
-            ax.set_title(f'Reynolds number evolution')
+            #ax.set_title(f'Reynolds number evolution')
             if step is not None:
-                fig.savefig(os.path.join(results_folder, f'step_{step}_Re.png'))
+                fig.savefig(os.path.join(results_folder, f'step_{step}_Re.pdf'))
             else:
-                fig.savefig(os.path.join(results_folder, f'Re.png'))
+                fig.savefig(os.path.join(results_folder, f'Re.pdf'))
             plt.close(fig)
 
             #print(data_dict['Re'].mean(axis=0)[[0, 150, 300, 450, 600, 750, 899]])
@@ -1140,15 +1148,15 @@ class TurbulentFormationEnv(gym.Env):
         if legend_dict is not None:
             ax.legend(loc=legend_dict['loc'], prop={'size': legend_dict['size']})
         ax.grid()
-        ax.set_xlabel('Time (s)')
-        ax.set_ylabel(y_label)
+        ax.set_xlabel('Time (s)', fontdict={'family': 'serif', 'color': 'black', 'weight': 'normal', 'size': 16})
+        ax.set_ylabel(y_label, fontdict={'family': 'serif', 'color': 'black', 'weight': 'normal', 'size': 16})
         if y_lim is not None:
             ax.set_ylim(y_lim[0], y_lim[1])
         ax.set_title(f'{title}')
         if step is not None:
-            fig.savefig(os.path.join(results_folder, f'step_{step}_{name}.png'))
+            fig.savefig(os.path.join(results_folder, f'step_{step}_{name}.pdf'))
         else:
-            fig.savefig(os.path.join(results_folder, f'{name}.png'))
+            fig.savefig(os.path.join(results_folder, f'{name}.pdf'))
         plt.close(fig)
 
         # robot error figure
@@ -1162,9 +1170,9 @@ class TurbulentFormationEnv(gym.Env):
         ax.set_ylim(0.05 * self.bounds[0], 0.3 * self.bounds[1])
         ax.set_title(f'{title} per robot')
         if step is not None:
-            fig.savefig(os.path.join(results_folder, f'step_{step}_{name}_per_robot.png'))
+            fig.savefig(os.path.join(results_folder, f'step_{step}_{name}_per_robot.pdf'))
         else:
-            fig.savefig(os.path.join(results_folder, f'{name}_per_robot.png'))
+            fig.savefig(os.path.join(results_folder, f'{name}_per_robot.pdf'))
         plt.close(fig)
 
     def get_metrics(self):
@@ -1176,6 +1184,7 @@ class TurbulentFormationEnv(gym.Env):
             'velocity_dir_error': self.velocity_dir_error.copy(),
             'gt_actions': self.gt_actions.copy(),
             'pred_actions': self.pred_actions.copy(),
+            'pd_actions': self.pd_actions.copy(),
             'Re': self.Re.copy(),
         }
 

@@ -110,7 +110,9 @@ formation_params:
     #       6 -> "grid 6x6"
     #       7 -> "grid 7x7"
     #       8 -> "grid 8x8"
-    #       9 -> "Platoon", 3 -> "grid 3x3",
+    #       9 -> "grid 9x9"
+    #      10 -> "grid 10x10"
+    #      11 -> "Platoon", 3 -> "grid 3x3",
     #   ]
     formation_type: 0
     graph_type: 'knn'                 # [formation, complete, knn]

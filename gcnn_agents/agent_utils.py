@@ -278,12 +278,12 @@ def get_formation_conf(formation_type, robot_distance=0.25):
             [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (0, 6), (1, 7), (2, 8), (3, 9), (4, 10), (6, 7), (7, 8),
              (8, 9), (9, 10), (11, 6), (12, 7), (13, 8), (14, 9), (11, 12), (12, 13), (13, 14), (15, 11), (16, 12),
              (17, 13), (15, 16), (16, 17), (18, 15), (19, 16), (18, 19), (20, 18)])
-    elif formation_type in range(2, 9):  # grid 2x2
+    elif formation_type in range(2, 11):  # grid 2x2
         G = nx.grid_graph(dim=[formation_type, formation_type])
         formation_ref = np.array(G.nodes).astype(float) * robot_distance #/ 2.0 # / (formation_type - 1)
         G = nx.relabel.relabel_nodes(G, mapping=dict(zip(G.nodes, range(formation_type**2))))
 
-    elif formation_type == 9:    # platoon
+    elif formation_type == 11:    # platoon
         formation_ref = np.array(
             [[0.0, 0.0], [0.5, 0.5], [1.0, 1.0], [1.5, 1.5], [2, 2], [2.5, 2.5], [3, 3], [3.5, 3.5], [4, 4],
              [4.5, 4.5], [5, 5], [5.5, 5.5], [6, 6], [6.5, 6.5], [7, 7], [7.5, 7.5], [8, 8], [8.5, 8.5], [9, 9],
