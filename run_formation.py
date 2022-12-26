@@ -1,14 +1,23 @@
-from environments import FormationEnv
+from environments import FormationEnv, TurbulentFormationEnv
+import hydra
+import numpy as np
 
-def main():
+@hydra.main(config_path='config/train.yaml', strict=True)
+def main(cfg):
     # instantiate the gym environment
 
-    form = FormationEnv()
+    env = TurbulentFormationEnv(cfg)
+    obs = env.reset()
 
-    while not form.done:
-        action = None
-        form.step(None)
-        form.render()
+
+    done = False
+    while not done:
+        n_agents = cfg.formation_params.num_nodes
+        action = np.zeros((n_agents, 2))
+        obs, reward, done, _ = env.step(action)
+        env.render()
+
+
 
 
 if __name__ == "__main__":
