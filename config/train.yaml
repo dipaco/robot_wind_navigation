@@ -74,7 +74,7 @@ use_pressure_sensor: true
 
 # wind sensor parameters
 wind_sensor:
-    max_speed: 60.0 # m/s
+    max_speed: 60.0     # m/s
     speed_accuracy: 1.2 # m/s
     angle_accuracy: 3.0 # degrees
 
